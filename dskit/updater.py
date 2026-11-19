@@ -37,10 +37,10 @@ def effective_repo(configured: str = "") -> str:
 
 
 def parse_version(text: str) -> tuple[int, int, int, int]:
-    """'v1.6.0' / '1.6.0-beta.2' -> (1, 6, 0, 1|0)。
+    """'v0.1.1' / '0.1.1-beta.2' -> (0, 1, 1, 1|0)。
 
     第 4 位是稳定版标志：正式版 1、预发布 0，
-    这样 1.6.0-beta 会排在 1.6.0 正式版之前。
+    这样 0.1.1-beta 会排在 0.1.1 正式版之前。
     完全解析不出数字时返回 (0, 0, 0, 0)，表示无效版本。
     """
     s = (text or "").strip()
