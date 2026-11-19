@@ -1,4 +1,4 @@
-<img width="1762" height="1011" alt="dec3d26f-bb35-48ce-888d-1829b27ce0ce" src="https://github.com/user-attachments/assets/f5d8c5cf-5890-4b44-b870-372b398b64c8" />
+<img width="1626" height="562" alt="image" src="https://github.com/user-attachments/assets/313f4a1a-700a-419d-a9b4-96e30c1d0f2c" />
 
 # DeepSeek Desktop
 
@@ -123,7 +123,7 @@
 
 ### 环境要求
 
-- Windows 10 / 11；对话区依赖系统 **WebView2 Runtime**（Win11 及 2021 年后的 Win10 通常已预装，缺失时会自动降级提示，不影响其他功能）
+- Windows 10 / 11；对话区依赖系统 **WebView2 Runtime**（Win11 及 2021 年后的 Win10 通常已预装，缺失时需要安装）
 - Python **3.10+**，且该解释器自带 `tkinter`（Anaconda / Python 官方安装包均可；若 `import tkinter` 失败，换一个自带 Tk 的解释器重建虚拟环境）
 - **一个你自己的 DeepSeek API Key**（本项目不提供）
 
