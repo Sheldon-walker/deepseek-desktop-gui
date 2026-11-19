@@ -1,3 +1,5 @@
+<img width="1762" height="1011" alt="dec3d26f-bb35-48ce-888d-1829b27ce0ce" src="https://github.com/user-attachments/assets/f5d8c5cf-5890-4b44-b870-372b398b64c8" />
+
 # DeepSeek Desktop
 
 一个运行在 Windows 上的**第三方本地 GUI 客户端**，通过 **DeepSeek 官方 API** 进行对话。
