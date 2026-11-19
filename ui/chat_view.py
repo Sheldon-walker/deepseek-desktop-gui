@@ -521,7 +521,9 @@ class ChatView(ctk.CTkScrollableFrame):
             text_color=C["text_dim"],
         ).pack(anchor="w", padx=28, pady=(10, 0))
 
-    def add_user(self, content, *, attachments: list[dict] | None = None, msg_index: int | None = None) -> None:
+    def add_user(self, content, *, attachments: list[dict] | None = None, msg_index: int | None = None,
+                 quotes: list | None = None) -> None:
+        _ = quotes  # 兼容 WebView2 版参数；Tk 回退版不单独渲染引用块
         self._dismiss_welcome()
         row = ctk.CTkFrame(self, fg_color="transparent")
         row.pack(fill="x", padx=26, pady=(10, 6))

@@ -120,6 +120,7 @@ class Config:
     panel_width: int = 340                # 右侧检索结果栏宽度（可拖拽），260~720
     sidebar_width: int = 268              # 左侧会话栏宽度（可拖拽），200~420
     ui: str = "web"                       # 界面外壳：web（WebView2 整窗） / tk（旧版 Tk 控件）
+    update_repo: str = ""                 # GitHub 更新源 owner/repo，留空用 dskit/version.py 的默认值
 
     # ---------- 路径 ----------
     @classmethod
@@ -210,6 +211,7 @@ class Config:
         except (TypeError, ValueError):
             self.cny_rate = 7.10
         self.proxy = (self.proxy or "").strip()
+        self.update_repo = (self.update_repo or "").strip()
 
     def to_dict(self, *, mask_key: bool = False) -> dict[str, Any]:
         data = {f.name: getattr(self, f.name) for f in fields(self)}

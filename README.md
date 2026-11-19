@@ -108,6 +108,7 @@
 | 本地存储 | `data/sessions/*.json`，一条会话一个文件，原子写入；可导出 Markdown / 备份 JSON |
 | 便携 | 配置与数据集中在 `data/`，整个文件夹拷走即可迁移；目录不可写时回退 `%APPDATA%\DeepSeekDesktop` |
 | 账户 | 查询可用模型列表、账户余额 |
+| 检查更新 | 设置里手动检查 GitHub Releases 新版本、查看更新日志、打开下载页；不自动检查、不上报本地数据 |
 | 错误提示 | HTTP / 网络 / 流中断异常统一转成中文提示（含 401 Key 无效、402 余额不足、429 自动退避重试等） |
 
 ### 命令行（`cli.py`）
@@ -248,9 +249,10 @@ call .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --win
 ```
 deepseek/
 ├─ app.py                    图形界面入口
-├─ cli.py                    命令行（verify / chat / repl / search / fetch / doc / asr / tts …）
+├─ cli.py                    命令行（verify / chat / repl / search / fetch / doc / asr / tts / update …）
 ├─ dskit/                    API 封装层（client / search / docs / importer / audio / asr /
-│                            tts / player / session / usage / config / errors / console）
+│                            tts / player / session / usage / config / errors / console /
+│                            version / updater）
 ├─ ui/                       界面层（CustomTkinter + WebView2，含 chat_html / wv2 / theme …）
 ├─ assets/icons/             界面图标
 ├─ lib/WebView2Loader.dll    WebView2 加载器（随仓库分发）
@@ -270,7 +272,7 @@ deepseek/
 2. **不提供任何额度**。本项目不附带、不赠送、不代管 API Key、免费额度、访问次数或充值服务。使用前须自行在 DeepSeek 开放平台注册、创建 API Key，并确保账号有可用余额。
 3. **费用自行承担**。所有请求通过你自己的 Key 直连 DeepSeek 官方 API，由此产生的**一切费用按 DeepSeek 官方 API 计费标准结算，由使用者自行承担**。客户端内显示的 token 用量与金额为本地估算，仅供参考，**实际账单以官方为准**。模型、接口与价格可能调整，请以官方文档与价格页为准。
 4. **关于"不受网页版限流"的准确说明**。客户端不经过网页版通道，因此不受网页版的访问限流与排队限制；但这**不等于无限制或免费使用**——官方 API 通道仍有速率限制（QPS）、并发约束，余额为零时请求会失败（返回 402）。请合规使用自有账号，勿用于绕过任何服务条款。
-5. **数据说明**。对话历史以 JSON 明文保存在本机 `data/sessions/`，**不会上传给除 DeepSeek 官方 API 以外的任何第三方服务**，项目不含统计、遥测或数据回传。但为获得回答，你的提问、附件与上下文**必然需要发送给 DeepSeek 官方 API**；文件解析、语音识别、语音合成、联网搜索、网页抓取等功能同样由官方接口在服务端处理。请勿在明文本地文件中存放敏感信息，并自行做好备份与访问控制。
+5. **数据说明**。对话历史以 JSON 明文保存在本机 `data/sessions/`，**不会上传给除 DeepSeek 官方 API 以外的任何第三方服务**，项目不含统计、遥测或数据回传。但为获得回答，你的提问、附件与上下文**必然需要发送给 DeepSeek 官方 API**；文件解析、语音识别、语音合成、联网搜索、网页抓取等功能同样由官方接口在服务端处理。此外，**仅当你手动点击「设置 → 软件更新 → 检查更新」时**，客户端会向 GitHub Releases API 发起一次匿名 GET 请求查询版本号，该请求**不携带 API Key、对话内容或任何本地数据**，也不会自动执行。请勿在明文本地文件中存放敏感信息，并自行做好备份与访问控制。
 6. **API Key 安全**。Key 明文存于 `data/config.json`。请勿提交到任何仓库、不要截图外发；**若曾误提交，请立即到开放平台撤销并重新生成该 Key**。
 7. **按"现状"提供，无担保**。不保证服务不间断、无错误或适合特定用途；作者不对因使用本软件产生的内容、费用、数据丢失或任何间接损失负责。AI 生成内容可能存在错误，重要场景请自行核实。
 8. **合规使用**。使用本软件即表示你同意遵守 DeepSeek 的服务条款、API 使用政策及适用法律法规，不得用于违法违规用途。
@@ -287,6 +289,31 @@ deepseek/
 
 ---
 
-## 九、许可证
+## 九、版本更新与发版流程
+
+客户端内置「设置 → 软件更新」，通过 GitHub Releases 检查新版本。
+
+**用户侧**
+
+- 显示当前版本与最新可用版本；有更新时「下载更新」打开安装包直链或发布页。
+- 「查看更新日志」在设置页内展开该版本的 Release 说明（按纯文本展示，不执行其中的 HTML）。
+- 命令行也可检查：`python cli.py update`（走 GitHub API，**不消耗 DeepSeek API 额度**）。
+- 检查更新**只在手动点击时发起一次匿名请求**，不自动检查、不上报任何本地数据；未认证调用受 GitHub 60 次/小时/IP 的限流约束。
+
+**维护者：发一个新版本**
+
+1. 改 `dskit/version.py` 里的 `APP_VERSION`（如 `1.0.0` → `1.6.0`），提交并推送。
+2. 执行 `build.bat` 重新打包，得到 `dist/DeepSeekDesktop.exe`。
+3. 在 GitHub 上打 tag **`v1.6.0`**（带 `v` 前缀即可，客户端会自动解析；也支持不带前缀）。
+4. 新建 Release：填写标题与更新日志，并把 exe 作为附件上传。
+   - 客户端优先取附件里的 `.exe` 直链作为「下载更新」目标；没有 exe 附件时回退到 Release 页面。
+   - 保持为 **latest release**，不要勾选 pre-release（`/releases/latest` 不返回预发布版本）。
+5. 发布完成后，用户点「检查更新」即可看到新版本。
+
+**更新源**：默认 `Sheldon-walker/deepseek-desktop-gui`。Fork 本项目后，可在设置的「更新源」里填自己的 `owner/repo`（也支持直接粘贴仓库 URL），或改 `dskit/version.py` 的 `UPDATE_REPO` 常量。版本号按语义化版本比较，`1.6.0-beta` 排在 `1.6.0` 正式版之前。
+
+---
+
+## 十、许可证
 
 本项目**尚未指定开源许可证**，正式发布前请补充 `LICENSE` 文件并明确使用条款。

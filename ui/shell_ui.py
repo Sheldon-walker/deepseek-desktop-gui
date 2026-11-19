@@ -108,10 +108,12 @@ class JsChat(_Emitter):
         self._last_assistant = None
         self._send("clear")
 
-    def add_user(self, content, *, attachments=None, msg_index=None) -> None:
-        text = content if isinstance(content, str) else _content_text(content)
-        files = [{"name": a.get("name"), "file_id": a.get("file_id")} for a in (attachments or [])]
-        self._send("user", {"id": "u" + str(self._msg_id), "text": text, "files": files, "index": msg_index})
+    def add_user(self, content, *, attachments=None, msg_index=None, quotes=None) -> None:
+        # 直接委托给 WebChatView，签名永远跟随它。
+        # 这里曾复制实现而漏加 quotes 参数，导致 on_send 抛 TypeError、点击发送毫无反应。
+        WebChatView.add_user(
+            self, content, attachments=attachments, msg_index=msg_index, quotes=quotes
+        )
 
     def add_assistant(self, *, model: str = "deepseek-flash", timestamp=None, index=None) -> JsBlock:
         self._msg_id += 1

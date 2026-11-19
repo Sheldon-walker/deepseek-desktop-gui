@@ -805,6 +805,65 @@ def t_import_zip(base: str) -> str:
     return "ZIP 解析正常"
 
 
+@case("更新：版本号解析与比较")
+def t_update_version(base: str) -> str:
+    from dskit.updater import clean_repo, compare_versions, effective_repo, parse_version
+    from dskit.version import UPDATE_REPO
+
+    assert parse_version("v1.6.0") == (1, 6, 0, 1)
+    assert parse_version("1.5.2") == (1, 5, 2, 1)
+    assert parse_version("1.6") == (1, 6, 0, 1)
+    assert parse_version("1.6.0-beta.2") == (1, 6, 0, 0)
+    assert parse_version("乱七八糟") == (0, 0, 0, 0)
+    assert compare_versions("v1.6.0", "1.5.2") == 1
+    assert compare_versions("1.5.2", "v1.6.0") == -1
+    assert compare_versions("v1.5.2", "1.5.2") == 0
+    assert compare_versions("1.6.0-beta.1", "1.6.0") == -1
+    assert clean_repo("https://github.com/Sheldon-walker/deepseek-desktop-gui.git") == "Sheldon-walker/deepseek-desktop-gui"
+    assert clean_repo(" owner/repo ") == "owner/repo"
+    assert effective_repo("") == UPDATE_REPO
+    return "v 前缀 / 预发布 / 粘贴仓库 URL 均正确"
+
+
+@case("更新：Release 解析（有新版本 + exe 直链）")
+def t_update_release(base: str) -> str:
+    from dskit.updater import parse_release_payload
+
+    payload = {
+        "tag_name": "v1.6.0",
+        "name": "1.6.0 稳定版",
+        "body": "## 更新内容\n- 新增检查更新\n- 修复若干问题",
+        "html_url": "https://github.com/Sheldon-walker/deepseek-desktop-gui/releases/tag/v1.6.0",
+        "published_at": "2026-11-20T10:00:00Z",
+        "prerelease": False,
+        "assets": [
+            {"name": "README.txt", "browser_download_url": "https://example.com/README.txt"},
+            {"name": "DeepSeekDesktop.exe", "browser_download_url": "https://example.com/DeepSeekDesktop.exe"},
+        ],
+    }
+    info = parse_release_payload(payload, current="1.5.2")
+    assert info.ok and info.has_update
+    assert info.latest == "v1.6.0"
+    assert info.message == "有新的稳定版本可用。"
+    assert info.download_url.endswith("DeepSeekDesktop.exe")
+    assert "新增检查更新" in info.notes
+    assert info.to_dict()["current"] == "1.5.2"
+    return "状态 / 版本 / 下载直链 / 更新日志均正确"
+
+
+@case("更新：同版本 / 本地更高 / 缺 tag 边界")
+def t_update_release_edge(base: str) -> str:
+    from dskit.updater import parse_release_payload
+
+    same = parse_release_payload({"tag_name": "v1.5.2", "body": ""}, current="1.5.2")
+    assert same.ok and not same.has_update and same.message == "已是最新版本。"
+    old = parse_release_payload({"tag_name": "v1.0.0"}, current="1.5.2")
+    assert old.ok and not old.has_update and "高于" in old.message
+    bad = parse_release_payload({"name": "没有 tag"}, current="1.5.2")
+    assert not bad.ok and "tag_name" in bad.message
+    return "三种边界均正确"
+
+
 def tempfile_dir() -> Path:
     import tempfile
 

@@ -58,7 +58,7 @@ class Session:
         content: Any = parts if parts else text
         msg = {"role": "user", "content": content, "_ts": _now()}
         self.messages.append(msg)
-        if self.title == "新对话":
+        if self.title == "新对话" and not self.extra.get("title_manual"):
             self.title = text.strip().splitlines()[0][:28] if text.strip() else "新对话"
         self.updated_at = _now()
         return msg

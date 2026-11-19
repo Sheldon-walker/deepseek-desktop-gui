@@ -36,7 +36,9 @@ from dskit.config import AVAILABLE_MODELS, Config, data_dir  # noqa: E402
 from dskit.errors import DSException  # noqa: E402
 from dskit.search import extract_urls, fetch_url, search  # noqa: E402
 from dskit.session import Session, SessionStore  # noqa: E402
+from dskit.updater import check_update  # noqa: E402
 from dskit.usage import Usage  # noqa: E402
+from dskit.version import APP_VERSION, UPDATE_REPO, releases_page_url  # noqa: E402
 
 
 # --------------------------------------------------------------------------- 输出
@@ -542,6 +544,32 @@ def cmd_asr(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- 命令：update
+def cmd_update(args: argparse.Namespace, cfg: Config) -> int:
+    """检查 GitHub 上的新版本（走 GitHub API，不消耗 DeepSeek API 额度）。"""
+    repo = cfg.update_repo or UPDATE_REPO
+    console.title("软件更新")
+    console.info(f"当前版本：{APP_VERSION}")
+    console.info(f"更新源：{repo}")
+    info = check_update(
+        repo=cfg.update_repo, current=APP_VERSION,
+        timeout=min(15, max(5, cfg.timeout)), proxies=cfg.proxies(),
+    )
+    if not info.ok:
+        console.warn(info.message)
+        console.info(f"发布页：{releases_page_url(repo)}")
+        return 0 if "还没有发布过" in info.message else 1
+    console.info(f"最新版本：{info.latest}  发布：{info.published_at[:10]}")
+    if info.has_update:
+        console.ok(info.message)
+        if info.notes:
+            print("\n" + info.notes[:2000])
+        console.info(f"下载：{info.download_url or info.html_url}")
+    else:
+        console.ok(info.message)
+    return 0
+
+
 # --------------------------------------------------------------------------- 命令：models / balance / config / sessions
 def cmd_models(args: argparse.Namespace, cfg: Config) -> int:
     client = DeepSeekClient(cfg)
@@ -958,6 +986,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rich-layout", action="store_true")
     p.add_argument("--delete", action="store_true", help="解析后立即在云端删除")
     p.set_defaults(func=cmd_doc)
+
+    p = sub.add_parser("update", help="检查 GitHub 上的新版本（不消耗 API 额度）")
+    p.set_defaults(func=cmd_update)
 
     sub.add_parser("models", help="列出可用模型").set_defaults(func=cmd_models)
     sub.add_parser("balance", help="查看余额").set_defaults(func=cmd_balance)

@@ -18,7 +18,7 @@ CLI demo 与后续 GUI 共用同一套接口，不含任何界面代码。
 
 from __future__ import annotations
 
-from . import asr, audio, console, docs, errors, importer, player, search, session, tts, usage
+from . import asr, audio, console, docs, errors, importer, player, search, session, tts, updater, usage, version
 from .client import DEFAULT_SYSTEM_PROMPT, ChatStream, DeepSeekClient, Event, ToolCallInfo
 from .config import AVAILABLE_MODELS, TTS_VOICES, Config, base_dir, data_dir
 from .docs import FileRef, delete_file, list_files, local_text, upload_document
@@ -26,11 +26,14 @@ from .errors import DSException
 from .importer import ImportedSession, load_path, to_session
 from .search import FetchedPage, SearchResult, build_context, extract_urls, fetch_url, search
 from .session import Session, SessionStore
+from .updater import UpdateInfo, check_update, compare_versions, parse_version
 from .usage import Cost, Usage, is_peak
+from .version import APP_NAME, APP_VERSION, UPDATE_REPO
 
 __all__ = [
+    "APP_NAME",
+    "APP_VERSION",
     "AVAILABLE_MODELS",
-    "TTS_VOICES",
     "ChatStream",
     "Config",
     "Cost",
@@ -44,12 +47,17 @@ __all__ = [
     "SearchResult",
     "Session",
     "SessionStore",
+    "TTS_VOICES",
     "ToolCallInfo",
+    "UPDATE_REPO",
+    "UpdateInfo",
     "Usage",
     "asr",
     "audio",
     "base_dir",
     "build_context",
+    "check_update",
+    "compare_versions",
     "console",
     "data_dir",
     "delete_file",
@@ -62,11 +70,14 @@ __all__ = [
     "list_files",
     "load_path",
     "local_text",
+    "parse_version",
     "player",
     "search",
     "session",
     "to_session",
     "tts",
+    "updater",
     "upload_document",
     "usage",
+    "version",
 ]

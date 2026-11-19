@@ -52,10 +52,21 @@ textarea{resize:vertical;line-height:1.6}
 .btn:hover{background:var(--surface-soft);color:var(--text)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .btn.primary:hover{filter:brightness(1.06)}
+.btn.solid{background:var(--text);border-color:var(--text);color:var(--bg);font-weight:600}
+.btn.solid:hover{filter:brightness(1.15)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 #foot{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:12px 24px;border-top:1px solid var(--border-soft);background:var(--surface-soft)}
 #test{font-size:12px;color:var(--text-dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #test.ok{color:var(--ok)} #test.bad{color:var(--danger)}
 .dir{font-size:11.5px;color:var(--text-dim);word-break:break-all}
+.upd-card{border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface-soft);margin-bottom:10px}
+.upd-top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12.5px;color:var(--text-soft)}
+.upd-top b{color:var(--text);font-weight:600}
+.upd-msg{margin:10px 0 12px;font-size:13px;color:var(--text);line-height:1.5}
+.upd-msg.ok{color:var(--ok)} .upd-msg.bad{color:var(--danger)}
+.upd-btns{display:flex;gap:8px;flex-wrap:wrap}
+.upd-notes{display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto;color:var(--text-soft)}
+.upd-notes.show{display:block}
 </style>
 </head>
 <body>
@@ -112,6 +123,23 @@ textarea{resize:vertical;line-height:1.6}
     <div class="row"><label class="k">代理</label><div class="ctl"><input type="text" id="proxy" placeholder="http://127.0.0.1:7890，留空走系统代理"></div></div>
     <div class="row"><label class="k">超时</label><div class="ctl"><input type="number" id="timeout" step="10" min="10" class="small"><span style="font-size:11.5px;color:var(--text-dim)">秒</span></div></div>
     <div class="row"><label class="k">数据目录</label><div class="ctl"><span class="dir" id="data_dir"></span></div></div>
+
+    <div class="sec">软件更新</div>
+    <div class="upd-card">
+      <div class="upd-top">
+        <span>当前版本：<b id="upd-cur">—</b></span>
+        <span>可用版本：<b id="upd-lat">—</b></span>
+      </div>
+      <div class="upd-msg" id="upd-msg">点「检查更新」查看是否有新版本。</div>
+      <div class="upd-btns">
+        <button class="btn" id="btn-check">检查更新</button>
+        <button class="btn solid" id="btn-download" disabled>下载更新</button>
+        <button class="btn" id="btn-changelog" disabled>查看更新日志</button>
+      </div>
+      <div class="upd-notes" id="upd-notes"></div>
+    </div>
+    <div class="row"><label class="k">更新源</label><div class="ctl"><input type="text" id="update_repo" placeholder="owner/repo，留空使用默认仓库"></div></div>
+    <div class="hint">仅点「检查更新」时向 GitHub 发起一次匿名请求，不发送 API Key、对话或任何本地数据；不自动检查、不上报。</div>
   </div>
   <div id="foot">
     <span id="test"></span>
@@ -136,6 +164,8 @@ window.chrome.webview.addEventListener('message', function(e){
     $('test').textContent = d.text || '';
     $('test').className = d.ok ? 'ok' : 'bad';
   }
+  else if(msg.type === 'upd_status') updChecking(!!msg.data);
+  else if(msg.type === 'upd_result') renderUpd(msg.data || {});
 });
 
 function fill(d){
@@ -160,6 +190,9 @@ function fill(d){
     var o = document.createElement('option'); o.value = k; o.textContent = d.voices[k]; voice.appendChild(o);
   });
   voice.value = d.voice || 'stella';
+  $('upd-cur').textContent = d.version || '—';
+  $('upd-lat').textContent = d.latest_version || '—';
+  $('update_repo').value = d.update_repo || d.repo_default || '';
   syncTemp();
 }
 
@@ -167,6 +200,29 @@ function syncTemp(){
   var think = $('thinking').checked;
   $('temperature').disabled = think;
   $('temp-note').textContent = think ? '思考模式下不生效' : '';
+}
+
+function updChecking(on){
+  $('btn-check').disabled = !!on;
+  $('btn-check').textContent = on ? '检查中…' : '检查更新';
+  if(on){
+    $('upd-msg').className = 'upd-msg';
+    $('upd-msg').textContent = '正在检查更新…';
+    $('upd-notes').classList.remove('show');
+  }
+}
+
+function renderUpd(d){
+  D.upd = d;
+  $('upd-cur').textContent = d.current || D.version || '—';
+  $('upd-lat').textContent = d.latest || '—';
+  var m = $('upd-msg');
+  m.textContent = d.message || '';
+  m.className = 'upd-msg' + (d.ok ? (d.has_update ? '' : ' ok') : ' bad');
+  $('btn-download').disabled = !(d.ok && d.has_update && (d.download_url || d.html_url));
+  $('btn-changelog').disabled = !(d.ok && (d.notes || d.html_url));
+  $('upd-notes').textContent = d.notes || '';
+  $('upd-notes').classList.remove('show');
 }
 
 function collect(){
@@ -188,6 +244,7 @@ function collect(){
     stop_words: $('stop_words').value,
     proxy: $('proxy').value,
     timeout: $('timeout').value,
+    update_repo: $('update_repo').value,
     effort: D.effort
   };
 }
@@ -199,6 +256,14 @@ $('theme').addEventListener('change', function(){
 $('btn-save').onclick = function(){ post({type:'save', data: collect()}); };
 $('btn-cancel').onclick = function(){ post({type:'close'}); };
 $('btn-test').onclick = function(){ $('test').className = ''; post({type:'test', data: collect()}); };
+$('btn-check').onclick = function(){ post({type:'check_update', data:{repo: $('update_repo').value}}); };
+$('btn-download').onclick = function(){ if(!this.disabled) post({type:'download_update'}); };
+$('btn-changelog').onclick = function(){
+  if(this.disabled) return;
+  var box = $('upd-notes');
+  if((D.upd && D.upd.notes) || box.textContent){ box.classList.toggle('show'); }
+  else { post({type:'open_release'}); }
+};
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') post({type:'close'});
   if((e.ctrlKey || e.metaKey) && e.key === 's'){ e.preventDefault(); $('btn-save').click(); }

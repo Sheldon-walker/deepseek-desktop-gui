@@ -57,6 +57,10 @@ body{font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI","PingFang SC"
 .mini-btn:hover{background:var(--surface-soft);border-color:var(--accent-soft);color:var(--accent)}
 .user-files{margin-top:6px;font-size:12px;color:var(--text-soft)}
 .user-files .f{display:block}
+.user-quotes{margin:0 0 8px;padding:6px 10px;border-left:3px solid var(--accent);border-radius:6px;background:rgba(127,127,127,.10);font-size:12px;color:var(--text-soft);max-height:132px;overflow:auto}
+.user-quotes .uq-item{margin:2px 0;white-space:pre-wrap;word-break:break-word;line-height:1.55}
+.user-quotes .uq-item::before{content:'❝ ';color:var(--accent);font-weight:700}
+.user-quotes .uq-role{color:var(--text-dim);font-size:11px;margin-right:4px}
 
 /* 助手消息 */
 .asst-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;min-width:0}
@@ -289,6 +293,18 @@ function buildUser(it){
   var bubble = document.createElement('div');
   bubble.className='user-bubble';
   bubble.textContent = d.text || '';
+  if(d.quotes && d.quotes.length){
+    var qbox = document.createElement('div'); qbox.className='user-quotes';
+    d.quotes.forEach(function(q){
+      var t = (q && typeof q === 'object') ? (q.text || '') : String(q || '');
+      if(!t) return;
+      var item = document.createElement('div'); item.className='uq-item';
+      if(q && q.role){ var r=document.createElement('span'); r.className='uq-role'; r.textContent=q.role+'：'; item.appendChild(r); }
+      item.appendChild(document.createTextNode(t.slice(0, 600)));
+      qbox.appendChild(item);
+    });
+    if(qbox.childNodes.length) bubble.insertBefore(qbox, bubble.firstChild);
+  }
   if(d.files && d.files.length){
     var fs = document.createElement('div'); fs.className='user-files';
     d.files.forEach(function(f){ var s=document.createElement('span'); s.className='f'; s.textContent='📎 '+(f.name||f.file_id); fs.appendChild(s); });
@@ -489,7 +505,7 @@ function renderHistory(data){
   var lastAssistant = -1;
   msgs.forEach(function(m, idx){
     if(m.role==='user'){
-      items.push({id:'h'+idx, kind:'user', data:{text:m.content||'', files:m.files||[], index:m.index!==undefined?m.index:null}});
+      items.push({id:'h'+idx, kind:'user', data:{text:m.content||'', files:m.files||[], quotes:m.quotes||[], index:m.index!==undefined?m.index:null}});
     }else if(m.role==='assistant'){
       lastAssistant = items.length;
       items.push({id:'h'+idx, kind:'assistant', data:{

@@ -268,7 +268,20 @@ class App(ctk.CTk):
         elif kind == "send":
             text = (data or {}).get("text") if isinstance(data, dict) else ""
             if text:
-                self.on_send(str(text))
+                try:
+                    self.on_send(str(text))
+                except Exception as exc:
+                    # 发送链路的任何异常都必须可见，否则界面表现为"点了没反应"且无痕迹
+                    import traceback
+                    try:
+                        with open(data_dir() / "ui_error.log", "a", encoding="utf-8") as fh:
+                            fh.write("[send] " + traceback.format_exc() + "\n")
+                    except Exception:
+                        pass
+                    try:
+                        self._toast(f"发送失败：{exc}", error=True)
+                    except Exception:
+                        pass
         elif kind == "stop":
             self.on_stop()
         elif kind == "new_chat":
@@ -914,18 +927,28 @@ class App(ctk.CTk):
             self.notice_bar.grid_remove()
 
     def rename_session(self, session_id: str) -> None:
-        try:
-            session = self.store.load(session_id)
-        except (OSError, ValueError):
-            return
         dialog = ctk.CTkInputDialog(text="输入新的会话标题：", title="重命名")
         value = dialog.get_input()
-        if value and value.strip():
-            session.title = value.strip()[:60]
-            self.store.save(session)
+        if not (value and value.strip()):
+            return
+        new_title = value.strip()[:60]
+        try:
+            # 当前会话必须改内存里的对象：否则下次发送时旧对象会把自动标题写回磁盘
             if self.session and self.session.id == session_id:
-                self._set_title(session.title)
-            self.refresh_sessions()
+                self.session.title = new_title
+                self.session.extra["title_manual"] = True
+                self.store.save(self.session)
+            else:
+                session = self.store.load(session_id)
+                session.title = new_title
+                session.extra["title_manual"] = True
+                self.store.save(session)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("重命名失败", f"保存会话失败：{exc}", parent=self)
+            return
+        if self.session and self.session.id == session_id:
+            self._set_title(new_title)
+        self.refresh_sessions()
 
     def delete_session(self, session_id: str) -> None:
         if not messagebox.askyesno("删除对话", "删除后无法恢复，确定删除这个会话吗？", parent=self):
@@ -1733,9 +1756,22 @@ class App(ctk.CTk):
             del session.messages[editing:]
             self.chat.render_history(session.messages, model=session.model or self.cfg.model, cny_rate=self.cfg.cny_rate)
 
-        session.add_user(text, file_ids=file_ids)
+        # 引用快照：气泡上可见 + 写进本地历史 + 作为上下文发给模型（三处都要用）
+        quotes_snapshot = [
+            {"text": q.get("text", ""), "role": q.get("role", "")}
+            for q in self.quotes
+        ]
+        quote_prompt = self._quote_prompt()   # 必须在清空 self.quotes 之前生成
+
+        user_msg = session.add_user(text, file_ids=file_ids)
+        if quotes_snapshot:
+            user_msg["_quotes"] = quotes_snapshot   # "_" 前缀：to_api_messages 会自动剔除，不重复发送
+            self._toast(f"已附上 {len(quotes_snapshot)} 段引用：显示在气泡上，并随本次提问发送给模型")
         self._set_mode(False)
-        self.chat.add_user(text, attachments=att_meta, msg_index=len(session.messages) - 1)
+        self.chat.add_user(
+            text, attachments=att_meta, msg_index=len(session.messages) - 1,
+            quotes=quotes_snapshot,
+        )
         self.input.clear()
         self.attachments.clear()
         self.input.show_attachments([])
@@ -1746,11 +1782,12 @@ class App(ctk.CTk):
         self.refresh_sessions()
 
         messages = session.to_api_messages(self._system_prompt())
-        # 引用选区只在本次请求里带上（含前后语境），不写进本地历史
-        quote_prompt = self._quote_prompt()
+        # 引用说明合并进第一条 system 消息，避免部分服务端只取首条 system 而丢掉引用
         if quote_prompt:
-            insert_at = 1 if messages and messages[0].get("role") == "system" else 0
-            messages.insert(insert_at, {"role": "system", "content": quote_prompt})
+            if messages and messages[0].get("role") == "system":
+                messages[0]["content"] = ((messages[0]["content"] or "") + "\n\n" + quote_prompt).strip()
+            else:
+                messages.insert(0, {"role": "system", "content": quote_prompt})
         self._begin_stream(session, messages, self._current_opts())
 
     def _begin_stream(self, session: Session, messages: list[dict], opts: dict) -> None:

@@ -10,14 +10,17 @@ from __future__ import annotations
 import json
 import threading
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox
 
 import customtkinter as ctk
 
+from dskit import updater
 from dskit.client import DeepSeekClient
 from dskit.config import EFFORT_LEVELS, Config, data_dir
 from dskit.tts import VOICES
 from dskit.errors import DSException
+from dskit.version import APP_VERSION, UPDATE_REPO, releases_page_url
 
 from . import theme, wv2
 from .settings_html import settings_html
@@ -40,6 +43,8 @@ class SettingsWindow(ctk.CTkToplevel):
         self._ready = False
         self._pending: list[dict] = []
         self._testing = False
+        self._checking_update = False
+        self._update_info = updater.UpdateInfo(current=APP_VERSION)
 
         self.geometry(self._center(WIDTH, HEIGHT))
         self._host = tk.Frame(self, bg=theme.COLORS["bg"], highlightthickness=0, bd=0)
@@ -162,6 +167,10 @@ class SettingsWindow(ctk.CTkToplevel):
             "proxy": cfg.proxy,
             "timeout": cfg.timeout,
             "data_dir": str(data_dir()),
+            "version": APP_VERSION,
+            "update_repo": cfg.update_repo,
+            "repo_default": UPDATE_REPO,
+            "latest_version": self._update_info.latest or "",
         }
 
     def _on_message(self, raw: str) -> None:
@@ -181,6 +190,13 @@ class SettingsWindow(ctk.CTkToplevel):
         elif kind == "test":
             self._last_form = msg.get("data") or {}
             self._test()
+        elif kind == "check_update":
+            self._check_update(msg.get("data") or {})
+        elif kind == "download_update":
+            self._open_url(self._update_info.download_url or self._update_info.html_url)
+        elif kind == "open_release":
+            repo = updater.effective_repo(self.cfg.update_repo)
+            self._open_url(self._update_info.html_url or releases_page_url(repo))
         elif kind == "close":
             self._close()
 
@@ -200,6 +216,7 @@ class SettingsWindow(ctk.CTkToplevel):
         cfg.system_prompt = str(data.get("system_prompt") or "").strip()
         cfg.stop_words = [w.strip() for w in str(data.get("stop_words") or "").splitlines() if w.strip()]
         cfg.proxy = str(data.get("proxy") or "").strip()
+        cfg.update_repo = str(data.get("update_repo") or "").strip()
         for key, caster in (("temperature", float), ("top_p", float), ("timeout", int), ("max_tokens", int)):
             raw = data.get(key)
             try:
@@ -244,6 +261,47 @@ class SettingsWindow(ctk.CTkToplevel):
             finally:
                 self._testing = False
                 self._post("testing", False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ---------- 软件更新 ----------
+    def _open_url(self, url: str) -> None:
+        if not url:
+            messagebox.showinfo("软件更新", "暂无可用的下载或发布页链接。", parent=self)
+            return
+        try:
+            webbrowser.open(url)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("软件更新", f"无法打开浏览器：{exc}", parent=self)
+
+    def _check_update(self, data: dict) -> None:
+        """后台线程查 GitHub Releases，结果用 after(0) 回 Tk 主线程再刷页面。"""
+        if self._checking_update:
+            return
+        self._checking_update = True
+        self._post("upd_status", True)
+        repo = str(data.get("repo") or "").strip() or self.cfg.update_repo
+        proxies = self.cfg.proxies()
+        timeout = min(15, max(5, self.cfg.timeout))
+
+        def worker() -> None:
+            try:
+                info = updater.check_update(
+                    repo=repo, current=APP_VERSION, timeout=timeout, proxies=proxies,
+                )
+            except Exception as exc:  # noqa: BLE001
+                info = updater.UpdateInfo(current=APP_VERSION, ok=False, message=f"检查失败：{exc}")
+
+            def done() -> None:
+                self._checking_update = False
+                self._update_info = info
+                self._post("upd_status", False)
+                self._post("upd_result", info.to_dict())
+
+            try:
+                self.after(0, done)
+            except Exception:  # noqa: BLE001
+                done()  # 窗口已关闭时 after 会抛错，_post 内部有保护
 
         threading.Thread(target=worker, daemon=True).start()
 

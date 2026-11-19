@@ -360,10 +360,13 @@ class WebChatView(ctk.CTkFrame):
         self._last_assistant = None
         self._send("clear")
 
-    def add_user(self, content, *, attachments=None, msg_index=None) -> None:
+    def add_user(self, content, *, attachments=None, msg_index=None, quotes=None) -> None:
         text = content if isinstance(content, str) else _content_text(content)
         files = [{"name": a.get("name"), "file_id": a.get("file_id")} for a in (attachments or [])]
-        self._send("user", {"id": "u" + str(self._msg_id), "text": text, "files": files, "index": msg_index})
+        self._send("user", {
+            "id": "u" + str(self._msg_id), "text": text, "files": files,
+            "quotes": quotes or [], "index": msg_index,
+        })
 
     def add_assistant(self, *, model: str = "deepseek-flash", timestamp=None, index=None) -> WebAssistantBlock:
         self._msg_id += 1
@@ -405,7 +408,10 @@ class WebChatView(ctk.CTkFrame):
                         str(p.get("text") or "") for p in content
                         if isinstance(p, dict) and p.get("type") == "text"
                     )
-                msgs.append({"role": "user", "content": content or "", "files": files, "index": idx})
+                msgs.append({
+                    "role": "user", "content": content or "", "files": files,
+                    "quotes": m.get("_quotes") or [], "index": idx,
+                })
             elif role == "assistant":
                 content = _content_text(m.get("content"))
                 reasoning = str(m.get("reasoning_content") or "")
