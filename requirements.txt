@@ -1,0 +1,5 @@
+requests>=2.31,<3
+customtkinter>=5.2
+
+# 阶段 6 打包时再装（不进运行时依赖）：
+# pyinstaller>=6.10
