@@ -60,10 +60,30 @@ textarea{resize:vertical;line-height:1.6}
 #test.ok{color:var(--ok)} #test.bad{color:var(--danger)}
 .dir{font-size:11.5px;color:var(--text-dim);word-break:break-all}
 .upd-card{border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--surface-soft);margin-bottom:10px}
+/* ---------- 阅读排版 ---------- */
+.typo-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin:2px 0 10px}
+.typo-item{display:flex;align-items:center;gap:8px;min-width:0}
+.typo-item .k2{width:62px;flex-shrink:0;font-size:12px;color:var(--text-soft)}
+.typo-item input[type=range]{flex:1;min-width:0;accent-color:var(--accent);height:18px}
+.typo-item .v{width:48px;flex-shrink:0;text-align:right;font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.typo-preview{border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px var(--tp-pad,36px);margin-bottom:10px;
+  font-size:var(--tp-fs,16px);line-height:var(--tp-lh,1.85);font-family:var(--tp-font,inherit);color:var(--text);
+  max-height:190px;overflow:auto}
+.typo-preview h4{margin:0 0 .5em;font-size:1.12em}
+.typo-preview p{margin:var(--tp-para,.55em) 0}
+.typo-preview ul{margin:var(--tp-para,.55em) 0;padding-left:1.5em}
+.typo-preview code{background:var(--card);border-radius:4px;padding:1px 5px;font-size:.88em}
+.typo-preview .tp-note{font-size:11px;color:var(--text-dim)}
+.typo-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.typo-bar .btn{height:28px;padding:0 11px;font-size:12px}
+#font_status{font-size:11.5px;color:var(--text-dim)}
 .upd-top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12.5px;color:var(--text-soft)}
 .upd-top b{color:var(--text);font-weight:600}
 .upd-msg{margin:10px 0 12px;font-size:13px;color:var(--text);line-height:1.5}
 .upd-msg.ok{color:var(--ok)} .upd-msg.bad{color:var(--danger)}
+.upd-msg.new{color:var(--accent);font-weight:700}
+.upd-msg.pre{color:var(--text-soft)}
+.upd-tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:5px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;vertical-align:middle}
 .upd-btns{display:flex;gap:8px;flex-wrap:wrap}
 .upd-notes{display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto;color:var(--text-soft)}
 .upd-notes.show{display:block}
@@ -87,6 +107,27 @@ textarea{resize:vertical;line-height:1.6}
     <div class="row"><label class="k">主题</label><div class="ctl">
       <select id="theme"><option value="light">浅色</option><option value="dark">深色</option></select>
     </div></div>
+
+    <div class="sec">阅读排版</div>
+    <div class="typo-grid">
+      <div class="typo-item"><span class="k2">左右留白</span><input type="range" id="chat_pad_x" min="8" max="120" step="2"><span class="v" id="v_pad_x">36 px</span></div>
+      <div class="typo-item"><span class="k2">行间距</span><input type="range" id="chat_line_height" min="1.2" max="2.6" step="0.05"><span class="v" id="v_lh">1.85</span></div>
+      <div class="typo-item"><span class="k2">正文字号</span><input type="range" id="chat_font_size" min="12" max="24" step="1"><span class="v" id="v_fs">16 px</span></div>
+      <div class="typo-item"><span class="k2">字体</span><select id="chat_font_family" style="flex:1"></select></div>
+    </div>
+    <div class="typo-bar">
+      <button class="btn" id="btn-pick-font">上传字体…</button>
+      <button class="btn" id="btn-remove-font">移除自定义字体</button>
+      <button class="btn" id="btn-typo-reset">恢复默认</button>
+      <span id="font_status"></span>
+    </div>
+    <div class="typo-preview" id="typo_preview">
+      <h4>💎 长文阅读示例</h4>
+      <p>对话内容以 <b>本地 JSON</b> 保存，不上传第三方；适合需要长期交流、反复打磨的创作场景。</p>
+      <ul><li>段落之间留有呼吸感，行距更舒展</li><li>支持 <code>system_prompt</code> 与停止词等精细参数</li></ul>
+      <p class="tp-note">预览区实时反映上方设置，保存后应用到对话页。</p>
+    </div>
+    <div class="hint">仅影响对话消息区（侧栏、输入栏保持原尺寸）。上传的字体文件保存在本机 data/fonts/，不会随程序上传到任何服务器。</div>
 
     <div class="sec">生成参数</div>
     <div class="row"><label class="k">temperature</label><div class="ctl">
@@ -166,7 +207,38 @@ window.chrome.webview.addEventListener('message', function(e){
   }
   else if(msg.type === 'upd_status') updChecking(!!msg.data);
   else if(msg.type === 'upd_result') renderUpd(msg.data || {});
+  else if(msg.type === 'font_face') setFontFace(msg.data || '');
+  else if(msg.type === 'font_picked') onFontPicked(msg.data || {});
+  else if(msg.type === 'font_error'){ $('font_status').textContent = msg.data || '字体导入失败'; }
 });
+
+// Python 注入的自定义字体 @font-face（base64 data URI），仅本设置页预览使用
+function setFontFace(css){
+  var st = $('ds-fontface');
+  if(!st){ st=document.createElement('style'); st.id='ds-fontface'; document.head.appendChild(st); }
+  st.textContent = css || '';
+  if(css){ D.font_css = D.font_css || {}; D.font_css.custom = '"DSCustomFont","Microsoft YaHei",sans-serif'; applyTypoPreview(); }
+}
+function onFontPicked(d){
+  var sel = $('chat_font_family');
+  var opt = sel.querySelector('option[value="custom"]');
+  if(!d.name){
+    if(opt) opt.remove();
+    sel.value = '';
+    D.chat_font_name = '';
+    $('btn-remove-font').disabled = true;
+    $('font_status').textContent = '';
+    applyTypoPreview();
+    return;
+  }
+  if(!opt){ opt=document.createElement('option'); opt.value='custom'; sel.appendChild(opt); }
+  opt.textContent = '自定义：' + d.name;
+  sel.value = 'custom';
+  D.chat_font_name = d.name;
+  $('btn-remove-font').disabled = false;
+  $('font_status').textContent = '已导入：' + d.name;
+  applyTypoPreview();
+}
 
 function fill(d){
   D = d;
@@ -193,8 +265,55 @@ function fill(d){
   $('upd-cur').textContent = d.version || '—';
   $('upd-lat').textContent = d.latest_version || '—';
   $('update_repo').value = d.update_repo || d.repo_default || '';
+  // 阅读排版
+  var sel = $('chat_font_family'); sel.innerHTML = '';
+  (d.font_presets || []).forEach(function(p){
+    var o = document.createElement('option'); o.value = p.value; o.textContent = p.label; sel.appendChild(o);
+  });
+  D.font_css = d.font_css || {};
+  $('chat_pad_x').value = d.chat_pad_x != null ? d.chat_pad_x : 36;
+  $('chat_line_height').value = d.chat_line_height != null ? d.chat_line_height : 1.85;
+  $('chat_font_size').value = d.chat_font_size != null ? d.chat_font_size : 16;
+  var fam = d.chat_font_family || '';
+  if(fam === 'custom'){
+    var o = document.createElement('option'); o.value='custom';
+    o.textContent = d.chat_font_name ? ('自定义：' + d.chat_font_name) : '自定义字体';
+    sel.appendChild(o);
+  }
+  sel.value = fam;
+  $('btn-remove-font').disabled = !d.chat_font_name;
+  $('font_status').textContent = d.chat_font_name ? ('已导入：' + d.chat_font_name) : '';
+  applyTypoPreview();
   syncTemp();
 }
+
+// ---------------- 阅读排版实时预览 ----------------
+function typoValues(){
+  return {
+    pad_x: Number($('chat_pad_x').value),
+    lh: Number($('chat_line_height').value),
+    fs: Number($('chat_font_size').value),
+    fam: $('chat_font_family').value
+  };
+}
+function applyTypoPreview(){
+  var v = typoValues();
+  $('v_pad_x').textContent = v.pad_x + ' px';
+  $('v_lh').textContent = v.lh.toFixed(2);
+  $('v_fs').textContent = v.fs + ' px';
+  var box = $('typo_preview'), s = box.style;
+  s.setProperty('--tp-pad', v.pad_x + 'px');
+  s.setProperty('--tp-lh', String(v.lh));
+  s.setProperty('--tp-fs', v.fs + 'px');
+  s.setProperty('--tp-para', Math.min(0.95, Math.max(0.35, 0.35 + (v.lh - 1.4) * 0.45)).toFixed(2) + 'em');
+  var css = (D.font_css && D.font_css[v.fam]) || '';
+  if(css) s.setProperty('--tp-font', css); else s.removeProperty('--tp-font');
+  // 自定义字体的 @font-face 由 Python 注入到本页
+}
+['chat_pad_x','chat_line_height','chat_font_size','chat_font_family'].forEach(function(id){
+  $(id).addEventListener('input', applyTypoPreview);
+  $(id).addEventListener('change', applyTypoPreview);
+});
 
 function syncTemp(){
   var think = $('thinking').checked;
@@ -215,10 +334,17 @@ function updChecking(on){
 function renderUpd(d){
   D.upd = d;
   $('upd-cur').textContent = d.current || D.version || '—';
-  $('upd-lat').textContent = d.latest || '—';
+  var lat = $('upd-lat');
+  // 用 textContent 拼接，避免把线上 tag 当 HTML 注入
+  lat.textContent = d.latest || '—';
+  if(d.latest){ lat.textContent = ''; lat.appendChild(document.createTextNode(d.latest)); }
+  if(d.prerelease && d.latest){
+    var tag = document.createElement('span'); tag.className='upd-tag'; tag.textContent='预发布';
+    lat.appendChild(tag);
+  }
   var m = $('upd-msg');
   m.textContent = d.message || '';
-  m.className = 'upd-msg' + (d.ok ? (d.has_update ? '' : ' ok') : ' bad');
+  m.className = 'upd-msg' + (!d.ok ? ' bad' : (d.has_update ? ' new' : (d.prerelease ? ' pre' : ' ok')));
   $('btn-download').disabled = !(d.ok && d.has_update && (d.download_url || d.html_url));
   $('btn-changelog').disabled = !(d.ok && (d.notes || d.html_url));
   $('upd-notes').textContent = d.notes || '';
@@ -245,6 +371,10 @@ function collect(){
     proxy: $('proxy').value,
     timeout: $('timeout').value,
     update_repo: $('update_repo').value,
+    chat_pad_x: Number($('chat_pad_x').value),
+    chat_line_height: Number($('chat_line_height').value),
+    chat_font_size: Number($('chat_font_size').value),
+    chat_font_family: $('chat_font_family').value,
     effort: D.effort
   };
 }
@@ -257,6 +387,12 @@ $('btn-save').onclick = function(){ post({type:'save', data: collect()}); };
 $('btn-cancel').onclick = function(){ post({type:'close'}); };
 $('btn-test').onclick = function(){ $('test').className = ''; post({type:'test', data: collect()}); };
 $('btn-check').onclick = function(){ post({type:'check_update', data:{repo: $('update_repo').value}}); };
+$('btn-pick-font').onclick = function(){ post({type:'pick_font'}); };
+$('btn-remove-font').onclick = function(){ post({type:'remove_font'}); };
+$('btn-typo-reset').onclick = function(){
+  $('chat_pad_x').value = 36; $('chat_line_height').value = 1.85; $('chat_font_size').value = 16;
+  $('chat_font_family').value = ''; applyTypoPreview();
+};
 $('btn-download').onclick = function(){ if(!this.disabled) post({type:'download_update'}); };
 $('btn-changelog').onclick = function(){
   if(this.disabled) return;

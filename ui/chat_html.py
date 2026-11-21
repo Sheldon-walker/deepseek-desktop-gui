@@ -26,6 +26,10 @@ CHAT_HTML = r"""<!DOCTYPE html>
   --code-inline:#b4442e; --warn-bg:#fff8e6; --warn-fg:#8a5a00;
   --thinking-bg:#fafafb; --thinking-text:#8b9199; --danger:#e5484d;
   --shadow:0 1px 3px rgba(0,0,0,0.06);
+  /* 对话排版：由设置页「阅读排版」动态覆盖；默认值即「舒适阅读」预设 */
+  --chat-pad-x:36px; --chat-lh:1.85; --chat-fs:16px;
+  --chat-font:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI","PingFang SC",Arial,sans-serif;
+  --chat-para:.55em;
 }
 body.dark{
   --bg:#16181b; --surface:#1c1e22; --surface-soft:#202227; --card:#26282d;
@@ -41,12 +45,14 @@ body.dark{
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg)}
 body{font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI","PingFang SC",Arial,sans-serif;font-size:15px;color:var(--text);line-height:1.7}
-#viewport{height:100%;overflow-y:auto;overflow-x:hidden;position:relative;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+/* 排版只作用于对话消息区，侧栏 / 顶栏 / 输入栏等 UI 保持原有尺寸不被放大 */
+#viewport{height:100%;overflow-y:auto;overflow-x:hidden;position:relative;scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+  font-family:var(--chat-font);font-size:var(--chat-fs);line-height:var(--chat-lh)}
 #viewport::-webkit-scrollbar{width:9px}
 #viewport::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
 #viewport::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
 #spacer{width:100%}
-.msg{padding:10px 26px}
+.msg{padding:10px var(--chat-pad-x)}
 
 /* 用户消息 */
 .user-row{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
@@ -81,12 +87,12 @@ body.dark .asst-avatar{background:rgba(255,255,255,.9);border-radius:50%;padding
 /* 正文 */
 .asst-body{word-break:break-word}
 .asst-body.streaming{white-space:pre-wrap}
-.asst-body h1{font-size:1.35em;margin:.6em 0 .3em}
-.asst-body h2{font-size:1.2em;margin:.55em 0 .28em}
-.asst-body h3{font-size:1.08em;margin:.5em 0 .25em}
-.asst-body p{margin:.4em 0}
-.asst-body ul,.asst-body ol{margin:.35em 0;padding-left:1.6em}
-.asst-body li{margin:.15em 0}
+.asst-body h1{font-size:1.35em;margin:var(--chat-para) 0 .3em}
+.asst-body h2{font-size:1.2em;margin:var(--chat-para) 0 .28em}
+.asst-body h3{font-size:1.08em;margin:var(--chat-para) 0 .25em}
+.asst-body p{margin:var(--chat-para) 0}
+.asst-body ul,.asst-body ol{margin:var(--chat-para) 0;padding-left:1.6em}
+.asst-body li{margin:calc(var(--chat-para) * .35) 0}
 .asst-body blockquote{margin:.5em 0;padding:4px 14px;border-left:3px solid var(--border);color:var(--text-soft)}
 .asst-body hr{border:none;border-top:1px solid var(--border);margin:.8em 0}
 .asst-body a{color:var(--accent);text-decoration:none;cursor:pointer}
@@ -144,7 +150,7 @@ sup.ref.plain{cursor:default;color:var(--text-dim);background:var(--surface-soft
 .notice.expand-btn:hover{background:var(--card)}
 
 /* 欢迎页 */
-.welcome{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:60vh;padding:20px 26px}
+.welcome{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:60vh;padding:20px var(--chat-pad-x)}
 .welcome h1{font-size:28px;margin:0 0 8px}
 .welcome p{color:var(--text-dim);margin:0}
 </style>

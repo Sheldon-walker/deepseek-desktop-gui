@@ -22,6 +22,15 @@ from .version import APP_VERSION, EXE_NAME, GITHUB_API, UPDATE_REPO
 _TIMEOUT = 10
 _UA = "DeepSeekDesktop-Updater/1.0"
 
+# 合法版本号：v 可选、1~3 段数字、可带 -beta / +build 后缀。
+# 用于把「写错的 tag」和「真正的版本」区分开，避免静默漏报更新。
+_TAG_RE = re.compile(r"^[vV]?\d+(?:\.\d+){0,2}(?:[-+][0-9A-Za-z.\-+]*)?$")
+
+
+def is_valid_tag(text: str) -> bool:
+    """tag_name 是否是可比较的版本号（vX.Y.Z 形式）。"""
+    return bool(_TAG_RE.match((text or "").strip()))
+
 
 def clean_repo(value: str) -> str:
     """把 'https://github.com/owner/repo.git' 规整成 'owner/repo'。"""
@@ -92,6 +101,19 @@ def _parse_release(data: dict, *, current: str) -> UpdateInfo:
     latest = str(data.get("tag_name") or "").strip()
     if not latest:
         return UpdateInfo(current=current, ok=False, message="Release 缺少版本号（tag_name），无法比较")
+    # 写错 tag（如 release-0.2.0）或四段版本号，parse_version 会静默解析成 (0,0,0,0)
+    # 并误报「本地版本高于线上」，明确拒绝比静默漏报更好。
+    if not is_valid_tag(latest):
+        return UpdateInfo(
+            current=current, ok=False,
+            message=f"线上 Release 的 tag 格式无法识别：{latest!r}，请使用 vX.Y.Z（如 v0.2.0）",
+        )
+
+    # 预发布判定：GitHub 的 prerelease 标志 OR tag 自带的 -beta / +build 后缀。
+    # /releases/latest 通常不返回预发布，但 tag 带后缀却标为正式版时仍可能出现，
+    # 此时绝不能向所有用户推送 beta。
+    tag_body = latest[1:] if latest[:1] in ("v", "V") else latest
+    is_pre = bool(data.get("prerelease")) or bool(re.search(r"[-+]", tag_body))
 
     info = UpdateInfo(
         current=current,
@@ -101,7 +123,7 @@ def _parse_release(data: dict, *, current: str) -> UpdateInfo:
         html_url=str(data.get("html_url") or ""),
         published_at=str(data.get("published_at") or ""),
         release_name=str(data.get("name") or ""),
-        prerelease=bool(data.get("prerelease")),
+        prerelease=is_pre,
     )
 
     # 下载链接：优先同名 exe，其次任意 exe，都没有就回退到 Release 页面
@@ -112,8 +134,11 @@ def _parse_release(data: dict, *, current: str) -> UpdateInfo:
     info.download_url = str((exe or {}).get("browser_download_url") or "")
 
     cmp = compare_versions(latest, current)
-    info.has_update = cmp > 0
-    if cmp > 0:
+    # 稳定通道：预发布版本即使版本号更高，也不触发更新提示。
+    info.has_update = cmp > 0 and not is_pre
+    if is_pre and cmp > 0:
+        info.message = "线上有较新的预发布版本，稳定通道暂不提示更新。"
+    elif cmp > 0:
         info.message = "有新的稳定版本可用。"
     elif cmp == 0:
         info.message = "已是最新版本。"
@@ -158,9 +183,11 @@ def check_update(
         return UpdateInfo(current=current, ok=False, message=f"无法连接 GitHub：{exc}")
 
     if resp.status_code == 404:
+        # /releases/latest 只返回「正式版」：仓库仅有预发布或草稿时同样返回 404，
+        # 旧文案「还没有发布过 Release」会让人误以为发版失败。
         return UpdateInfo(
             current=current, ok=False,
-            message="该仓库还没有发布过 Release（发版后即可检查到更新）",
+            message="未找到正式版 Release（仓库可能只有预发布或草稿版本，发布正式版后即可检查更新）",
         )
     if resp.status_code == 403:
         return UpdateInfo(

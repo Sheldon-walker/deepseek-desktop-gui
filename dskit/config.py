@@ -121,6 +121,12 @@ class Config:
     sidebar_width: int = 268              # 左侧会话栏宽度（可拖拽），200~420
     ui: str = "web"                       # 界面外壳：web（WebView2 整窗） / tk（旧版 Tk 控件）
     update_repo: str = ""                 # GitHub 更新源 owner/repo，留空用 dskit/version.py 的默认值
+    # ---------- 对话区排版（设置页「阅读排版」）----------
+    chat_pad_x: int = 36                  # 消息区左右留白 px，8~120
+    chat_line_height: float = 1.85        # 正文行距倍数，1.2~2.6
+    chat_font_size: int = 16              # 正文字号 px，12~24
+    chat_font_family: str = ""            # 预设字体 key，"" = 系统默认，"custom" = 用户上传
+    chat_font_name: str = ""              # 自定义字体文件名（data/fonts/ 下），不入库
 
     # ---------- 路径 ----------
     @classmethod
@@ -212,6 +218,26 @@ class Config:
             self.cny_rate = 7.10
         self.proxy = (self.proxy or "").strip()
         self.update_repo = (self.update_repo or "").strip()
+        # 对话排版：全部钳制到安全范围，旧配置缺字段时用 dataclass 默认值
+        try:
+            self.chat_pad_x = min(120, max(8, int(self.chat_pad_x)))
+        except (TypeError, ValueError):
+            self.chat_pad_x = 36
+        try:
+            self.chat_line_height = round(min(2.6, max(1.2, float(self.chat_line_height))), 2)
+        except (TypeError, ValueError):
+            self.chat_line_height = 1.85
+        try:
+            self.chat_font_size = min(24, max(12, int(self.chat_font_size)))
+        except (TypeError, ValueError):
+            self.chat_font_size = 16
+        self.chat_font_family = str(self.chat_font_family or "").strip()
+        # 文件名只保留 basename，杜绝路径穿越
+        self.chat_font_name = str(self.chat_font_name or "").strip()
+        if self.chat_font_name:
+            self.chat_font_name = Path(self.chat_font_name).name[:80]
+        if self.chat_font_family == "custom" and not self.chat_font_name:
+            self.chat_font_family = ""
 
     def to_dict(self, *, mask_key: bool = False) -> dict[str, Any]:
         data = {f.name: getattr(self, f.name) for f in fields(self)}

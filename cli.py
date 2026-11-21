@@ -558,7 +558,7 @@ def cmd_update(args: argparse.Namespace, cfg: Config) -> int:
     if not info.ok:
         console.warn(info.message)
         console.info(f"发布页：{releases_page_url(repo)}")
-        return 0 if "还没有发布过" in info.message else 1
+        return 0 if "未找到正式版" in info.message else 1
     console.info(f"最新版本：{info.latest}  发布：{info.published_at[:10]}")
     if info.has_update:
         console.ok(info.message)

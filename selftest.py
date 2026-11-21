@@ -892,6 +892,140 @@ def t_update_first_release(base: str) -> str:
     return "tag / 当前版本 / 已是最新 / exe 直链均对应"
 
 
+@case("更新：预发布不误推 / 非法 tag 明确报错")
+def t_update_prerelease_and_badtag(base: str) -> str:
+    from dskit.updater import is_valid_tag, parse_release_payload
+
+    # 1) tag 带 -beta 但标为正式版：不能向稳定通道推 beta
+    beta = parse_release_payload(
+        {"tag_name": "v0.2.0-beta.1", "body": "内测", "html_url": "https://example.com/r"},
+        current="0.1.1",
+    )
+    assert beta.ok and not beta.has_update
+    assert beta.prerelease and "预发布" in beta.message
+
+    # 2) GitHub 明确标 prerelease 的 Release，同样不推
+    flagged = parse_release_payload(
+        {"tag_name": "v0.2.0", "prerelease": True}, current="0.1.1",
+    )
+    assert flagged.ok and not flagged.has_update and flagged.prerelease
+
+    # 3) 正常发版仍然能触发更新（回归保护）
+    stable = parse_release_payload({"tag_name": "v0.2.0"}, current="0.1.1")
+    assert stable.ok and stable.has_update and stable.message == "有新的稳定版本可用。"
+
+    # 4) 写错的 tag 明确报错，不再静默误报「本地版本高于线上」
+    assert not is_valid_tag("release-0.2.0")
+    assert not is_valid_tag("v0.2.0.1")
+    assert is_valid_tag("v0.2") and is_valid_tag("V0.2.0") and is_valid_tag("0.2.0")
+    bad = parse_release_payload({"tag_name": "release-0.2.0"}, current="0.1.1")
+    assert not bad.ok and "格式无法识别" in bad.message
+    four = parse_release_payload({"tag_name": "v0.2.0.1"}, current="0.1.1")
+    assert not four.ok and "格式无法识别" in four.message
+    return "beta / prerelease 不误推，正常版仍提示，非法 tag 明确报错"
+
+
+@case("排版：配置默认值 / 越界钳制 / 旧配置兼容")
+def t_typography_config(base: str) -> str:
+    from dskit.config import Config
+    from ui import fonts
+
+    c = Config()
+    assert (c.chat_pad_x, c.chat_line_height, c.chat_font_size) == (36, 1.85, 16)
+    assert c.chat_font_family == "" and c.chat_font_name == ""
+
+    # 越界值被钳制，非法 family 回退
+    bad = Config.from_dict({
+        "chat_pad_x": 999, "chat_line_height": 99, "chat_font_size": 1,
+        "chat_font_family": "custom", "chat_font_name": "../../evil.ttf",
+    })
+    assert (bad.chat_pad_x, bad.chat_line_height, bad.chat_font_size) == (120, 2.6, 12)
+    assert bad.chat_font_name == "evil.ttf"          # 路径穿越被 basename 化
+    c2 = Config.from_dict({"chat_font_family": "custom", "chat_font_name": ""})
+    assert c2.chat_font_family == ""                  # custom 但无文件时回退默认
+
+    # 旧配置（无新字段）自动获得舒适阅读默认值
+    old = Config.from_dict({"api_key": "sk-test"})
+    assert (old.chat_pad_x, old.chat_font_size) == (36, 16)
+
+    # 字段往返持久化
+    c.chat_pad_x, c.chat_line_height, c.chat_font_size = 72, 2.2, 20
+    c.chat_font_family = "songti"
+    c.normalize()
+    r = Config.from_dict(c.to_dict())
+    assert (r.chat_pad_x, r.chat_line_height, r.chat_font_size, r.chat_font_family) == (72, 2.2, 20, "songti")
+    return "默认值 / 钳制 / 兼容 / 往返均正确"
+
+
+@case("排版：字体预设与自定义字体安全")
+def t_typography_fonts(base: str) -> str:
+    import tempfile
+    from pathlib import Path
+    from dskit.config import Config
+    from ui import fonts
+
+    keys = [k for k, _l, _c in fonts.FONT_PRESETS]
+    assert "" in keys and len(keys) >= 8
+    for k in keys:
+        css = fonts.family_css(k)
+        assert css and "{" not in css and "}" not in css and "url(" not in css
+    # family_css 不接受任意用户输入，未知 key 一律回退系统默认
+    assert fonts.family_css("__injected__") == fonts.family_css("")
+    # 字体上传的扩展名与大小校验
+    import tempfile as _tf
+    from pathlib import Path as _P
+    exe = _P(_tf.mkdtemp()) / "bad.exe"
+    exe.write_bytes(b"x")
+    try:
+        fonts.import_font(exe)
+        raise AssertionError("应拒绝非字体扩展名")
+    except ValueError:
+        pass
+
+    d = Path(tempfile.mkdtemp()) / "My Font v2.ttf"
+    d.write_bytes(b"OTTO-fake" * 8)
+    name = fonts.import_font(d)
+    assert name == "MyFontv2.ttf" and "/" not in name and " " not in name
+    css, family = fonts.font_face_rules(name)
+    assert css.startswith('@font-face{font-family:"DSCustomFont"')
+    assert "base64," in css and "DSCustomFont" in family
+    fonts.remove_font(name)
+    assert fonts.font_face_rules(name)[0] == ""      # 文件缺失时安全回退
+
+    p = fonts.style_payload(Config())
+    assert p["pad_x"] == 36 and p["font_size"] == 16 and "line_height" in p
+    assert "font_face" in p
+    light = fonts.style_payload(Config(), with_font=False)
+    assert "font_face" not in light                   # 增量更新不重传大字符串
+    return "预设 / 安全文件名 / base64 注入 / 回退 / 增量更新均正确"
+
+
+@case("更新：404（仅预发布/草稿）与 403 限流文案")
+def t_update_http_errors(base: str) -> str:
+    from unittest.mock import patch
+    from dskit import updater
+
+    class Resp:
+        def __init__(self, code: int) -> None:
+            self.status_code = code
+
+        def json(self):  # noqa: ANN201
+            return {}
+
+    with patch.object(updater.requests, "get", return_value=Resp(404)):
+        r = updater.check_update(repo="o/r", current="0.1.1")
+    assert not r.ok and "未找到正式版" in r.message and "预发布" in r.message
+
+    with patch.object(updater.requests, "get", return_value=Resp(403)):
+        r = updater.check_update(repo="o/r", current="0.1.1")
+    assert not r.ok and "上限" in r.message
+
+    with patch.object(updater.requests, "get", return_value=Resp(500)):
+        r = updater.check_update(repo="o/r", current="0.1.1")
+    assert not r.ok and "HTTP 500" in r.message
+    return "404 / 403 / 5xx 均有明确中文提示"
+
+
 def tempfile_dir() -> Path:
     import tempfile
 

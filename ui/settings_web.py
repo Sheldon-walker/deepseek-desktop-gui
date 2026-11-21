@@ -11,7 +11,7 @@ import json
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -22,16 +22,22 @@ from dskit.tts import VOICES
 from dskit.errors import DSException
 from dskit.version import APP_VERSION, UPDATE_REPO, releases_page_url
 
-from . import theme, wv2
+from . import fonts, theme, wv2
 from .settings_html import settings_html
 
 WIDTH, HEIGHT = 720, 760
+
+# 最近一次检查结果：设置窗口每次都是新实例，缓存让「可用版本」不会一重开就变回「—」。
+# 只缓存展示信息，不缓存按钮状态（按钮仍由 renderUpd 决定），避免误点下载旧链接。
+_LAST_UPDATE: updater.UpdateInfo | None = None
 
 
 class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, master, cfg: Config, *, on_saved=None) -> None:
         super().__init__(master)
-        self.cfg = cfg
+        # 在副本上编辑：用户点「取消」或「上传字体」后不保存时，主窗口配置不受污染。
+        # 保存时把这个副本交给 on_saved，由主窗口整体替换。
+        self.cfg = Config.from_dict(cfg.to_dict())
         self.on_saved = on_saved
         self.withdraw()
         self.title("设置")
@@ -44,7 +50,9 @@ class SettingsWindow(ctk.CTkToplevel):
         self._pending: list[dict] = []
         self._testing = False
         self._checking_update = False
-        self._update_info = updater.UpdateInfo(current=APP_VERSION)
+        self._update_info = _LAST_UPDATE or updater.UpdateInfo(current=APP_VERSION)
+        self._pending_font_removals: list[str] = []
+        self._saved = False
 
         self.geometry(self._center(WIDTH, HEIGHT))
         self._host = tk.Frame(self, bg=theme.COLORS["bg"], highlightthickness=0, bd=0)
@@ -171,6 +179,14 @@ class SettingsWindow(ctk.CTkToplevel):
             "update_repo": cfg.update_repo,
             "repo_default": UPDATE_REPO,
             "latest_version": self._update_info.latest or "",
+            # 阅读排版
+            "chat_pad_x": cfg.chat_pad_x,
+            "chat_line_height": cfg.chat_line_height,
+            "chat_font_size": cfg.chat_font_size,
+            "chat_font_family": cfg.chat_font_family,
+            "chat_font_name": cfg.chat_font_name,
+            "font_presets": fonts.presets_for_ui(),
+            "font_css": {k: fonts.family_css(k) for k, _l, _c in fonts.FONT_PRESETS},
         }
 
     def _on_message(self, raw: str) -> None:
@@ -185,6 +201,11 @@ class SettingsWindow(ctk.CTkToplevel):
             for payload in pending:
                 self._post(payload["type"], payload.get("data"))
             self._post("init", self._payload())
+            # 已导入的自定义字体注入本页，预览区能真实渲染
+            self._preview_font_face()
+            # 恢复上次检查的状态文案与按钮，避免只显示版本号却显示「点检查更新」
+            if _LAST_UPDATE is not None:
+                self._post("upd_result", _LAST_UPDATE.to_dict())
         elif kind == "save":
             self._save(msg.get("data") or {})
         elif kind == "test":
@@ -197,8 +218,51 @@ class SettingsWindow(ctk.CTkToplevel):
         elif kind == "open_release":
             repo = updater.effective_repo(self.cfg.update_repo)
             self._open_url(self._update_info.html_url or releases_page_url(repo))
+        elif kind == "pick_font":
+            # after(0) 让 WebView2 消息回调先返回，避免原生文件对话框重入消息循环
+            self.after(0, self._pick_font)
+        elif kind == "remove_font":
+            self._remove_font()
         elif kind == "close":
             self._close()
+
+    # ---------- 阅读排版：字体导入 ----------
+    def _preview_font_face(self) -> None:
+        """把自定义字体的 @font-face 注入设置页，供预览区真实渲染。"""
+        from pathlib import Path
+        name = str(getattr(self.cfg, "chat_font_name", "") or "")
+        css = ""
+        if name and Path(name).name == name:
+            css, _ = fonts.font_face_rules(name)
+        self._post("font_face", css)
+
+    def _pick_font(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self, title="选择字体文件",
+            filetypes=[("字体文件", "*.ttf *.otf *.woff *.woff2"), ("所有文件", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            name = fonts.import_font(path)
+        except (OSError, ValueError) as exc:
+            self._post("font_error", f"导入失败：{exc}")
+            return
+        self.cfg.chat_font_name = name
+        self.cfg.chat_font_family = fonts.CUSTOM_KEY
+        self._post("font_picked", {"name": name})
+        self._preview_font_face()
+
+    def _remove_font(self) -> None:
+        name = str(getattr(self.cfg, "chat_font_name", "") or "")
+        # 只解除引用；物理文件等用户真正点「保存」后才删，点「取消」可完整恢复
+        if name:
+            self._pending_font_removals.append(name)
+        self.cfg.chat_font_name = ""
+        if self.cfg.chat_font_family == fonts.CUSTOM_KEY:
+            self.cfg.chat_font_family = ""
+        self._post("font_picked", {"name": ""})
+        self._post("font_face", "")
 
     def _apply(self, data: dict) -> Config:
         cfg = self.cfg
@@ -217,6 +281,22 @@ class SettingsWindow(ctk.CTkToplevel):
         cfg.stop_words = [w.strip() for w in str(data.get("stop_words") or "").splitlines() if w.strip()]
         cfg.proxy = str(data.get("proxy") or "").strip()
         cfg.update_repo = str(data.get("update_repo") or "").strip()
+        # 阅读排版：表单没这项时保留副本原值（cancel/旧页面兼容）
+        for key, default in (("chat_pad_x", 36), ("chat_line_height", 1.85),
+                             ("chat_font_size", 16), ("chat_font_family", "")):
+            if key in data:
+                if key == "chat_line_height":
+                    try:
+                        setattr(cfg, key, float(data[key]))
+                    except (TypeError, ValueError):
+                        setattr(cfg, key, default)
+                elif key == "chat_font_family":
+                    setattr(cfg, key, str(data[key] or "").strip())
+                else:
+                    try:
+                        setattr(cfg, key, int(data[key]))
+                    except (TypeError, ValueError):
+                        setattr(cfg, key, default)
         for key, caster in (("temperature", float), ("top_p", float), ("timeout", int), ("max_tokens", int)):
             raw = data.get(key)
             try:
@@ -233,6 +313,10 @@ class SettingsWindow(ctk.CTkToplevel):
         except OSError as exc:
             messagebox.showerror("保存失败", f"写入配置出错：{exc}", parent=self)
             return
+        self._saved = True
+        for name in self._pending_font_removals:
+            fonts.remove_font(name)
+        self._pending_font_removals = []
         if self.on_saved:
             self.on_saved(cfg)
         self._close()
@@ -293,8 +377,10 @@ class SettingsWindow(ctk.CTkToplevel):
                 info = updater.UpdateInfo(current=APP_VERSION, ok=False, message=f"检查失败：{exc}")
 
             def done() -> None:
+                global _LAST_UPDATE
                 self._checking_update = False
                 self._update_info = info
+                _LAST_UPDATE = info
                 self._post("upd_status", False)
                 self._post("upd_result", info.to_dict())
 

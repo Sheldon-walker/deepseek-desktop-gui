@@ -303,6 +303,25 @@ window.onerror = function(m, src, line){
 };
 function post(o){ try{ window.chrome.webview.postMessage(o); }catch(e){} }
 
+// ---------------- 对话排版（设置页「阅读排版」）----------------
+// 只改 :root 上的 CSS 变量，#viewport 内的正文会自动重排（正常文档流，无需重算高度）。
+function applyChatStyle(d){
+  d = d || {};
+  var r = document.documentElement.style;
+  if(d.pad_x != null) r.setProperty('--chat-pad-x', Number(d.pad_x) + 'px');
+  if(d.line_height != null) r.setProperty('--chat-lh', String(Number(d.line_height)));
+  if(d.font_size != null) r.setProperty('--chat-fs', Number(d.font_size) + 'px');
+  if(d.para != null) r.setProperty('--chat-para', Number(d.para) + 'em');
+  if(d.font_family) r.setProperty('--chat-font', d.font_family);
+  // @font-face 用 textContent 写入，避免 innerHTML 解析；内容由 Python 侧生成（常量 + base64）
+  // font_face 缺省表示「字体没变」，保留已注入的样式，避免每次都重传几 MB
+  if(d.font_face !== undefined){
+    var st = $('ds-fontface');
+    if(!st){ st = document.createElement('style'); st.id = 'ds-fontface'; document.head.appendChild(st); }
+    st.textContent = d.font_face || '';
+  }
+}
+
 var CHAT_TYPES = {clear:1, welcome:1, history:1, user:1, assistant_begin:1, reasoning:1,
                   content:1, note:1, assistant_end:1, speak_state:1, error:1, scroll_end:1,
                   notice:1};
@@ -340,6 +359,7 @@ window.chrome.webview.addEventListener('message', function(e){
     case 'set_model': ShellUI.setModel(msg.data); break;
     case 'set_toggle': setToggle(msg.data.key === 'thinking' ? 'b-think' : 'b-web', !!msg.data.value); break;
     case 'zoom': document.body.style.zoom = (msg.data && msg.data.zoom) || 1; break;
+    case 'chat_style': applyChatStyle(msg.data || {}); break;
     case 'notice_show': $('notice').classList.toggle('on', !!msg.data); break;
     case 'source_btn': $('src').textContent = msg.data || '来源'; break;
     case 'toast': showToast(msg.data || {}); break;
@@ -369,6 +389,7 @@ function onInit(d){
   requestAnimationFrame(updateBrandFade);
   if(d.panel_width) applyPanelWidth(d.panel_width);
   if(d.zoom) document.body.style.zoom = d.zoom;
+  if(d.chat_style) applyChatStyle(d.chat_style);
   setBusy(false);
   requestAnimationFrame(function(){ autoGrow(); fitComposer(); });
   $('input').focus();

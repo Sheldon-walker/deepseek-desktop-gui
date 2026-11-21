@@ -24,7 +24,7 @@ from dskit.errors import DSException
 from dskit.session import Session, SessionStore, write_export
 from dskit.usage import Usage
 
-from . import shell_ui, theme, wv2
+from . import fonts, shell_ui, theme, wv2
 from .import_web import ImportWindow
 from .shell_html import SHELL_HTML
 from .input_bar import InputBar
@@ -223,6 +223,7 @@ class App(ctk.CTk):
                 "panel_width": self.cfg.panel_width,
                 "notice": "",
                 "zoom": float(getattr(self.cfg, "chat_zoom", 1.0) or 1.0),
+                "chat_style": fonts.style_payload(self.cfg),
             },
         )
 
@@ -1061,22 +1062,28 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------ 设置 / 导入
     def open_settings(self) -> None:
         self._theme_at_open = self.cfg.theme
+        self._font_at_open = (self.cfg.chat_font_family, self.cfg.chat_font_name)
         SettingsWindow(self, self.cfg, on_saved=self._on_settings_saved)
 
     def _on_settings_saved(self, cfg: Config) -> None:
         theme_changed = self._theme_at_open != cfg.theme
+        font_changed = self._font_at_open != (cfg.chat_font_family, cfg.chat_font_name)
         self.cfg = cfg
         self.client = DeepSeekClient(cfg)
         if theme_changed:
             theme.apply(cfg.theme)
             self._rebuild_ui()
+            # 网页外壳不会重建页面（只推主题色），但要让同次保存的排版/字体改动生效
+            self.post("chat_style", fonts.style_payload(cfg, with_font=font_changed))
             self.status_left.configure(text="已切换主题，当前会话已保留")
             return
         self.input.model_menu.set(cfg.model)
         self.input.think_toggle.set(cfg.thinking)
         self.input.search_toggle.set(cfg.web_search)
         self.input.set_rich(cfg.rich_layout_default)
-        self.status_left.configure(text="设置已保存")
+        # 排版立即生效；只有字体真的换了才重传 base64，其它调整走轻量增量
+        self.post("chat_style", fonts.style_payload(cfg, with_font=font_changed))
+        self.status_left.configure(text="设置已保存，阅读排版已应用")
 
     def _rebuild_ui(self) -> None:
         """切换主题时重建界面，保留当前会话与附件。"""
