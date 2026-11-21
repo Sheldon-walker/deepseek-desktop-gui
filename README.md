@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6.svg)](#四快速开始)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](#四快速开始)
-[![Release](https://img.shields.io/badge/Release-v0.1.2-4d6bfe.svg)](https://github.com/Sheldon-walker/deepseek-desktop-gui/releases)
+[![Release](https://img.shields.io/badge/Release-v0.1.3-4d6bfe.svg)](https://github.com/Sheldon-walker/deepseek-desktop-gui/releases)
 ![非官方](https://img.shields.io/badge/非官方-第三方作品-orange.svg)
 ![本地存储](https://img.shields.io/badge/数据-本地%20JSON-5a6068.svg)
 

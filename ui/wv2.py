@@ -368,7 +368,9 @@ class WebView:
                 try:
                     self.on_message(msg)
                 except Exception:
-                    pass
+                    # 以前这里静默吞掉所有 web 消息回调异常，表现为「点了没反应且无日志」
+                    import traceback
+                    traceback.print_exc()
 
     # ------------------------------------------------------------------ 控制
     def set_bounds(self, x: int, y: int, width: int, height: int) -> None:

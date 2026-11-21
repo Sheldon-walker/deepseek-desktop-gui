@@ -155,6 +155,7 @@ class SettingsWindow(ctk.CTkToplevel):
         return {
             "dark": theme.is_dark(),
             "api_key": cfg.api_key,
+            "base_url": cfg.base_url,
             "theme": cfg.theme,
             "thinking": cfg.thinking,
             "web_search": cfg.web_search,
@@ -326,7 +327,10 @@ class SettingsWindow(ctk.CTkToplevel):
             return
         self._testing = True
         self._post("testing", True)
-        cfg = Config.from_dict(self._last_form or self.cfg.to_dict())
+        # 以当前生效配置的副本为基础叠加表单值：表单没提供的 base_url 等沿用
+        # self.cfg，避免测试连接落到 dataclass 默认的官方地址（与旧 Tk 版一致）。
+        cfg = Config.from_dict({**self.cfg.to_dict(), **(self._last_form or {})})
+        cfg.base_url = self.cfg.base_url
         client = DeepSeekClient(cfg)
 
         def worker() -> None:
@@ -337,14 +341,23 @@ class SettingsWindow(ctk.CTkToplevel):
                     extra = f"，余额 {balance.get('total')} {balance.get('currency')}"
                 except DSException:
                     extra = ""
-                self._post("test_result", {"ok": True, "text": f"连接成功：{'、'.join(models)}{extra}"})
+                ok, text = True, f"连接成功：{'、'.join(models)}{extra}"
             except DSException as exc:
-                self._post("test_result", {"ok": False, "text": str(exc)})
+                ok, text = False, str(exc)
             except Exception as exc:  # noqa: BLE001
-                self._post("test_result", {"ok": False, "text": f"{type(exc).__name__}: {exc}"})
-            finally:
+                ok, text = False, f"{type(exc).__name__}: {exc}"
+
+            # _post 会走 WebView2 COM 调用，必须回 Tk 主线程执行；默认参数绑定
+            # 当次结果，避免回调闭包拿到后续变化的值（参照 _check_update 的 done）。
+            def done(ok=ok, text=text) -> None:
                 self._testing = False
+                self._post("test_result", {"ok": ok, "text": text})
                 self._post("testing", False)
+
+            try:
+                self.after(0, done)
+            except Exception:  # noqa: BLE001
+                done()  # 窗口已关闭时 after 会抛错，_post 内部有保护
 
         threading.Thread(target=worker, daemon=True).start()
 

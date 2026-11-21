@@ -244,7 +244,7 @@ function fill(d){
   D = d;
   document.body.classList.toggle('dark', !!d.dark);
   $('api_key').value = d.api_key || '';
-  $('base_url').value = 'https://api.deepseek.com';
+  $('base_url').value = d.base_url || '';
   $('theme').value = d.theme || 'light';
   $('temperature').value = d.temperature;
   $('top_p').value = d.top_p;
@@ -354,6 +354,7 @@ function renderUpd(d){
 function collect(){
   return {
     api_key: $('api_key').value,
+    base_url: $('base_url').value,
     theme: $('theme').value,
     thinking: $('thinking').checked,
     web_search: $('web_search').checked,

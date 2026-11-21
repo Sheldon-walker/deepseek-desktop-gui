@@ -643,13 +643,30 @@ function findItem(id){
 }
 
 // ---------------- Markdown ----------------
-function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// 链接 URL 白名单：仅 http/https/mailto 与相对路径/锚点；危险 scheme 返回 null（降级为纯文本）。
+// 大小写不敏感、忽略首尾空白；URL 已经过 esc()，这里再兜一次属性转义，杜绝 href 属性注入。
+function safeLinkUrl(raw){
+  var u = String(raw == null ? '' : raw).trim();
+  var scheme = u.match(/^([A-Za-z][A-Za-z0-9+.\-]*):/);
+  if(scheme){
+    var proto = scheme[1].toLowerCase();
+    if(proto !== 'http' && proto !== 'https' && proto !== 'mailto') return null;
+  } else if(u.charAt(0) !== '/' && u.charAt(0) !== '#'){
+    return null;
+  }
+  return u.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function inlineMd(s, allowBracketRefs){
   s = esc(s);
   // 行内码
   s = s.replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>');
-  // 链接
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  // 链接：URL 先过白名单，危险 scheme 只显示文字不生成 <a>
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function(_m, label, url){
+    var href = safeLinkUrl(url);
+    if(href === null) return label;
+    return '<a href="' + href + '">' + label + '</a>';
+  });
   // 加粗
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   // 接口给的 annotations 带位置时，用 \u0001n\u0002 标记插入（见 injectRefs）
@@ -840,7 +857,8 @@ function quoteContext(el, picked){
   if(prev) ctx.push(prev);
   ctx.push(self);
   if(next) ctx.push(next);
-  return {index: el.getAttribute('data-index'), picked: picked, context: ctx};
+  // 顶层 role 直接取当前被引用消息（self）的角色，避免 Python 侧用 context[-1] 误取到「下一条」
+  return {index: el.getAttribute('data-index'), picked: picked, role: self.role, context: ctx};
 }
 function showSelBar(rect, data){
   hideSelBar();

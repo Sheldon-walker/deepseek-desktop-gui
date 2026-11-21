@@ -45,16 +45,31 @@ class Session:
         self.updated_at = self.updated_at or self.created_at
 
     # ---------- 写入 ----------
-    def add_user(self, text: str, *, file_ids: list[str] | None = None, url_context: str = "") -> dict:
-        """添加一条用户消息。带文件/网页上下文时用 content 数组。"""
+    def add_user(
+        self,
+        text: str,
+        *,
+        file_ids: list[str] | None = None,
+        url_context: str = "",
+        file_names: list[str] | None = None,
+    ) -> dict:
+        """添加一条用户消息。带文件/网页上下文时用 content 数组。
+
+        file_names 与 file_ids 按位置对应，只写进 content part 的 "_name"（下划线前缀，
+        to_api_messages() 会剔除，不发给官方 API），用于本地重开历史时还原原始文件名。
+        旧调用不传该参数时行为不变。
+        """
         parts: list[dict] = []
         if url_context.strip():
             parts.append({"type": "text", "text": f"{text}\n\n以下是用户要求参考的网页内容：\n\n{url_context}"})
         if file_ids:
             if not parts:
                 parts.append({"type": "text", "text": text})
-            for fid in file_ids:
-                parts.append({"type": "file", "file_id": fid})
+            for i, fid in enumerate(file_ids):
+                part = {"type": "file", "file_id": fid}
+                if file_names and i < len(file_names) and file_names[i]:
+                    part["_name"] = file_names[i]
+                parts.append(part)
         content: Any = parts if parts else text
         msg = {"role": "user", "content": content, "_ts": _now()}
         self.messages.append(msg)
@@ -83,12 +98,21 @@ class Session:
 
     # ---------- 读取 ----------
     def to_api_messages(self, system_prompt: str = "") -> list[dict]:
-        """产出可直接发给接口的 messages（剔除 "_" 本地字段）。"""
+        """产出可直接发给接口的 messages（剔除 "_" 本地字段，含 content part 内的）。"""
         out: list[dict] = []
         if system_prompt:
             out.append({"role": "system", "content": system_prompt})
         for msg in self.messages:
             clean = {k: v for k, v in msg.items() if not k.startswith("_")}
+            # 顶层剔除是浅拷贝，content 数组里的 part 需要单独再剔除一次下划线本地字段
+            # （如附件的 "_name"），否则会被原样发给官方 API 造成 400。
+            content = clean.get("content")
+            if isinstance(content, list):
+                clean["content"] = [
+                    {k: v for k, v in part.items() if not k.startswith("_")}
+                    if isinstance(part, dict) else part
+                    for part in content
+                ]
             if clean.get("role") == "assistant" and not clean.get("content") and not clean.get("server_tool_calls"):
                 continue  # 空回复（被中断）不入上下文
             out.append(clean)

@@ -228,6 +228,12 @@ class JsInput(_Emitter):
         self._text_cache = text
         self._send("input_set", text)
 
+    def append_text(self, text: str) -> None:
+        """语音识别结果追加到输入框；走前端 append，不能覆盖用户已手输的内容。"""
+        text = text or ""
+        self._text_cache = self.get_text() + text
+        self._send("input_append", text)
+
     def get_text(self) -> str:
         return getattr(self, "_text_cache", "")
 

@@ -181,10 +181,18 @@ class App(ctk.CTk):
         payload = {"type": type_}
         if data is not None:
             payload["data"] = data
+        # 经典 Tk 界面 / WebView2 初始化失败回退后前端不存在，直接丢弃即可，
+        # 不要往 _pending_posts 无限堆积（这些属性也可能根本没初始化）
+        if not getattr(self, "_web", False):
+            return
         wv = getattr(self, "_wv", None)
+        pending = getattr(self, "_pending_posts", None)
+        if pending is None:
+            pending = []
+            self._pending_posts = pending
         # 页面还没加载完就先攒着，否则启动时的历史/会话会丢
-        if not wv or not self._web_ready:
-            self._pending_posts.append(payload)
+        if not wv or not getattr(self, "_web_ready", False):
+            pending.append(payload)
             return
         try:
             wv.post_json(json.dumps(payload, ensure_ascii=False))
@@ -192,7 +200,7 @@ class App(ctk.CTk):
             pass
 
     def _flush_posts(self) -> None:
-        pending, self._pending_posts = self._pending_posts, []
+        pending, self._pending_posts = getattr(self, "_pending_posts", []), []
         for payload in pending:
             wv = getattr(self, "_wv", None)
             if not wv:
@@ -866,6 +874,26 @@ class App(ctk.CTk):
             self.open_settings()
 
     # ------------------------------------------------------------------ 会话
+    def _persist(self, session) -> None:
+        """对话内容落盘；关闭「保存本地历史」时跳过，避免无痕模式下仍写盘。"""
+        if self.cfg.save_history:
+            self.store.save(session)
+
+    def _persist_meta(self, session) -> None:
+        """只保存会话元数据（标题/置顶/导入标记）。
+
+        关闭历史时仍需写一个骨架，否则侧栏列表、切换会话、置顶都会失效；
+        但绝不能把 messages 带出去，否则「关闭保存历史」形同虚设。
+        """
+        if self.cfg.save_history:
+            self.store.save(session)
+            return
+        import copy
+        shell = copy.copy(session)
+        shell.messages = []
+        shell.extra = dict(session.extra)
+        self.store.save(shell)
+
     def refresh_sessions(self) -> None:
         active = self.session.id if self.session else None
         self.sidebar.refresh(self.store.list(), active)
@@ -875,6 +903,7 @@ class App(ctk.CTk):
             self.on_stop()
         self.stop_speak()
         self._editing_index = None
+        self._editing_sid = None
         self._reset_search_panel()
         self.session = Session(model=self.cfg.model)
         self.attachments.clear()
@@ -902,6 +931,10 @@ class App(ctk.CTk):
             return
         self.stop_speak()
         self._reset_search_panel()
+        # 切换会话必须丢弃上一会话的「编辑中」状态，否则在新会话发送会误删历史
+        self._editing_index = None
+        self._editing_sid = None
+        self.input.set_hint("")
         self.session = session
         self.attachments.clear()
         self.input.show_attachments([])
@@ -938,12 +971,12 @@ class App(ctk.CTk):
             if self.session and self.session.id == session_id:
                 self.session.title = new_title
                 self.session.extra["title_manual"] = True
-                self.store.save(self.session)
+                self._persist_meta(self.session)
             else:
                 session = self.store.load(session_id)
                 session.title = new_title
                 session.extra["title_manual"] = True
-                self.store.save(session)
+                self._persist_meta(session)
         except (OSError, ValueError) as exc:
             messagebox.showerror("重命名失败", f"保存会话失败：{exc}", parent=self)
             return
@@ -966,7 +999,7 @@ class App(ctk.CTk):
             return
         extra = session.extra
         extra["pinned"] = not bool(extra.get("pinned"))
-        self.store.save(session)
+        self._persist_meta(session)
         self.refresh_sessions()
         self._toast("已置顶" if extra["pinned"] else "已取消置顶")
 
@@ -1020,7 +1053,7 @@ class App(ctk.CTk):
             except (OSError, ValueError):
                 continue
             session.extra["pinned"] = target
-            self.store.save(session)
+            self._persist_meta(session)
         self.refresh_sessions()
         self._toast(f"已{'置顶' if target else '取消置顶'} {len(ids)} 个会话")
 
@@ -1341,7 +1374,14 @@ class App(ctk.CTk):
         text = str(data.get("picked") or "").strip()
         if not text:
             return
-        role = str(data.get("context", [{}])[-1].get("role") or "") if isinstance(data.get("context"), list) else ""
+        # 前端 quoteContext() 的 context 顺序是 [prev, self, next]，末项是「下一条」，
+        # 所以优先读前端新增的顶层 role（当前被引用消息），context 只作兜底。
+        role = str(data.get("role") or "")
+        if not role:
+            ctx_tail = data.get("context")
+            if isinstance(ctx_tail, list) and ctx_tail:
+                tail = ctx_tail[-1]
+                role = str(tail.get("role") or "") if isinstance(tail, dict) else ""
         ctx = []
         raw = data.get("context")
         if isinstance(raw, list):
@@ -1675,11 +1715,13 @@ class App(ctk.CTk):
         return dedup
 
     def _current_opts(self) -> dict:
+        # 直接读 cfg：Web 模式下 _Toggle._value 只在启动时初始化，开关回调只写 cfg，
+        # 若读 toggle.get() 会一直拿到启动旧值（点开关不生效，重启才生效）。
         return {
             "model": self.cfg.model,
-            "thinking": bool(self.input.think_toggle.get()),
+            "thinking": bool(self.cfg.thinking),
             "reasoning_effort": self.cfg.reasoning_effort,
-            "web_search": bool(self.input.search_toggle.get()),
+            "web_search": bool(self.cfg.web_search),
             "read_url": self.cfg.read_url,
         }
 
@@ -1699,6 +1741,7 @@ class App(ctk.CTk):
         if self.session.messages[msg_index].get("role") != "user":
             return
         self._editing_index = msg_index
+        self._editing_sid = self.session.id if self.session else None
         self.input.set_text(text)
         self.input.set_hint("已载入待编辑消息，发送后将从这一条重新生成")
         self.status_left.configure(text="编辑中：发送后将丢弃这条消息及之后的回复")
@@ -1716,7 +1759,7 @@ class App(ctk.CTk):
             return
         del msgs[index]
         self.session.updated_at = datetime.now().timestamp()
-        self.store.save(self.session)
+        self._persist(self.session)
         self.chat.render_history(msgs, model=self.session.model or self.cfg.model, cny_rate=self.cfg.cny_rate)
         self._set_mode(bool(msgs))
         self.refresh_sessions()
@@ -1730,7 +1773,7 @@ class App(ctk.CTk):
             return
         self.stop_speak()
         msgs.pop()
-        self.store.save(self.session)
+        self._persist(self.session)
         self.chat.render_history(self.session.messages, model=self.session.model or self.cfg.model, cny_rate=self.cfg.cny_rate)
         self._set_mode(False)
         self.status_left.configure(text="重新生成中…")
@@ -1750,13 +1793,17 @@ class App(ctk.CTk):
 
         session = self.session
         editing = self._editing_index
+        editing_sid = getattr(self, "_editing_sid", None)
         self._editing_index = None
+        self._editing_sid = None
 
         file_ids = [a.file_id for a in self.attachments]
         att_meta = [{"name": a.filename, "file_id": a.file_id} for a in self.attachments]
+        file_names = [a.filename for a in self.attachments]
 
         if (
             editing is not None
+            and editing_sid == session.id
             and 0 <= editing < len(session.messages)
             and session.messages[editing].get("role") == "user"
         ):
@@ -1770,7 +1817,7 @@ class App(ctk.CTk):
         ]
         quote_prompt = self._quote_prompt()   # 必须在清空 self.quotes 之前生成
 
-        user_msg = session.add_user(text, file_ids=file_ids)
+        user_msg = session.add_user(text, file_ids=file_ids, file_names=file_names)
         if quotes_snapshot:
             user_msg["_quotes"] = quotes_snapshot   # "_" 前缀：to_api_messages 会自动剔除，不重复发送
             self._toast(f"已附上 {len(quotes_snapshot)} 段引用：显示在气泡上，并随本次提问发送给模型")
@@ -1784,7 +1831,7 @@ class App(ctk.CTk):
         self.input.show_attachments([])
         self.quotes.clear()
         self.input.show_quotes([])
-        self.store.save(session)
+        self._persist(session)
         self._set_title(session.title)
         self.refresh_sessions()
 
@@ -1861,7 +1908,8 @@ class App(ctk.CTk):
             try:
                 wv.poll()
             except Exception:
-                pass
+                import traceback
+                traceback.print_exc()
         try:
             # 一次最多取一批，并且把连续的内容增量合并成一条：
             # 流式时每个 delta 都单独走一次 COM + 一次 DOM 重写会让 UI 线程忙不过来，
@@ -1884,7 +1932,21 @@ class App(ctk.CTk):
                 else:
                     merged.append((kind, data, sid))
             for kind, data, sid in merged:
-                self._handle(kind, data, sid)
+                try:
+                    self._handle(kind, data, sid)
+                except Exception as exc:  # noqa: BLE001
+                    # 逐条保护：一条消息出错不能吞掉整批队列，也不能静默无日志
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        with open(data_dir() / "ui_error.log", "a", encoding="utf-8") as fh:
+                            fh.write(f"[handle:{kind}] " + traceback.format_exc() + "\n")
+                    except Exception:
+                        pass
+                    try:
+                        self.status_left.configure(text=f"界面异常（{kind}）：{exc}")
+                    except Exception:
+                        pass
         except Exception as exc:  # noqa: BLE001
             self.status_left.configure(text=f"界面异常：{exc}")
         self.after(35, self._poll)
@@ -1995,8 +2057,7 @@ class App(ctk.CTk):
             sources = self._collect_sources(stream)
             if sources:
                 msg["_sources"] = sources
-            if self.cfg.save_history:
-                self.store.save(session)
+            self._persist(session)
 
         auto_block = None
         if self._current(sid) and self._block:
@@ -2076,8 +2137,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         try:
-            if self.session and self.session.messages and self.cfg.save_history:
-                self.store.save(self.session)
+            if self.session and self.session.messages:
+                self._persist(self.session)
         except Exception:
             pass
         self.destroy()

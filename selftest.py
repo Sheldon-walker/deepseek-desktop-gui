@@ -1036,6 +1036,156 @@ def tempfile_dir() -> Path:
 
 
 # --------------------------------------------------------------------------- 运行
+@case("Web 外壳：语音结果追加走 input_append，不覆盖手输内容")
+def t_web_input_append(base: str) -> str:
+    from ui import shell_ui
+
+    class _App:
+        def __init__(self) -> None:
+            self.posts: list[tuple] = []
+
+        def post(self, t, d=None) -> None:
+            self.posts.append((t, d))
+
+    app = _App()
+    inp = shell_ui.JsInput(app, model="deepseek-flash", thinking=False, web=False)
+    inp.set_text("你好")
+    inp.append_text("世界")
+    assert app.posts[-1] == ("input_append", "世界")
+    assert inp.get_text() == "你好世界"
+    return "ASR 追加不再触发 AttributeError，也不清掉已输入内容"
+
+
+@case("Web 外壳：思考/联网开关立即生效（读 cfg 而非启动快照）")
+def t_web_toggle_live(base: str) -> str:
+    import types
+    from ui.window import App
+
+    cfg = types.SimpleNamespace(model="deepseek-flash", thinking=True,
+                                reasoning_effort="high", web_search=False, read_url=True)
+    # 故意不给 input 任何 toggle 属性：旧实现读 toggle.get() 会直接 AttributeError
+    fake = types.SimpleNamespace(cfg=cfg, input=types.SimpleNamespace())
+    assert App._current_opts(fake)["thinking"] is True
+    assert App._current_opts(fake)["web_search"] is False
+    return "请求参数取自 cfg，点击开关后立即生效"
+
+
+@case("会话：切换会话清空编辑态，避免跨会话误删历史")
+def t_edit_state_reset(base: str) -> str:
+    from unittest.mock import MagicMock
+    from ui.window import App
+    from dskit.session import Session
+
+    m = MagicMock()
+    m.streaming = False
+    m._stream_sid = "other"
+    m._editing_index = 3
+    m._editing_sid = "A"
+    m.store.load.return_value = Session(id="B")
+    App.open_session(m, "B")
+    assert m._editing_index is None and m._editing_sid is None
+    return "open_session 重置编辑索引与来源会话 id"
+
+
+@case("隐私：关闭保存历史后对话内容不落盘，仅存元数据骨架")
+def t_no_history_persist(base: str) -> str:
+    import json, tempfile, types
+    from pathlib import Path
+    from ui.window import App
+    from dskit.session import Session, SessionStore
+
+    root = Path(tempfile.mkdtemp())
+    store = SessionStore(root / "sessions")
+    s = Session(model="m")
+    s.add_user("秘密对话内容")
+    f = types.SimpleNamespace(cfg=types.SimpleNamespace(save_history=False), store=store)
+
+    App._persist(f, s)
+    assert not list((root / "sessions").glob("*.json")), "关闭历史却写了对话内容"
+    App._persist_meta(f, s)
+    files = list((root / "sessions").glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    assert data["messages"] == [], data
+    assert data["title"] == s.title
+    return "内容不落盘；标题/置顶仍可保存为空壳，会话列表不失效"
+
+
+@case("引用：角色取当前被引用消息，空 context 不崩")
+def t_quote_role(base: str) -> str:
+    from unittest.mock import MagicMock
+    from ui.window import App
+
+    q = MagicMock()
+    q.quotes = []
+    App._add_quote(q, {"picked": "引用文字", "role": "assistant",
+                       "context": [{"role": "user"}, {"role": "assistant"}, {"role": "user"}]})
+    assert q.quotes[-1]["role"] == "assistant"
+    App._add_quote(q, {"picked": "再引用", "context": []})
+    return "顶层 role 优先；空 context 不再 IndexError"
+
+
+@case("Tk/回退模式：post 安全丢弃，不依赖 WebView 属性")
+def t_post_tk_safe(base: str) -> str:
+    import types
+    from ui.window import App
+
+    App.post(types.SimpleNamespace(_web=False), "toast", {"x": 1})
+    return "无 _pending_posts / _wv 也不抛 AttributeError"
+
+
+@case("配置：环境变量注入只在内存生效，save 不落盘")
+def t_config_env_not_persisted(base: str) -> str:
+    import tempfile
+    from dataclasses import fields
+    from pathlib import Path
+    from unittest.mock import patch
+    import dskit.config as config_mod
+    from dskit.config import Config
+
+    path = Path(tempfile.mkdtemp()) / "config.json"
+    path.write_text(json.dumps({
+        "api_key": "sk-disk", "base_url": "https://disk.example.com", "theme": "dark",
+    }), encoding="utf-8")
+    env = {"DEEPSEEK_API_KEY": "sk-env-secret", "DEEPSEEK_BASE_URL": "https://env.example.com"}
+    with patch.dict(os.environ, env), patch.object(config_mod, "migrate_legacy", lambda: None):
+        cfg = Config.load(path)
+        assert cfg.api_key == "sk-env-secret" and cfg.base_url == "https://env.example.com"
+        names = {f.name for f in fields(cfg)}
+        assert not {"_env_fields", "_disk_raw", "_env_injected"} & names, "内部属性泄漏成 dataclass 字段"
+        cfg.save(path)
+        text = path.read_text(encoding="utf-8")
+        saved = json.loads(text)
+        assert saved["api_key"] == "sk-disk" and saved["base_url"] == "https://disk.example.com", saved
+        assert saved["theme"] == "dark"
+        assert "sk-env-secret" not in text and "env.example.com" not in text, "env 值落盘了"
+        assert not {"_env_fields", "_disk_raw", "_env_injected"} & set(saved), "内部属性写进了 config.json"
+    return "env 值只在内存生效；磁盘保持原值，内部属性不入库"
+
+
+@case("配置：env 注入后用户主动改 Key 仍可落盘")
+def t_config_env_user_override(base: str) -> str:
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+    import dskit.config as config_mod
+    from dskit.config import Config
+
+    path = Path(tempfile.mkdtemp()) / "config.json"
+    path.write_text(json.dumps({"api_key": "sk-disk", "base_url": "https://disk.example.com"}), encoding="utf-8")
+    env = {"DEEPSEEK_API_KEY": "sk-env-secret", "DEEPSEEK_BASE_URL": "https://env.example.com"}
+    with patch.dict(os.environ, env), patch.object(config_mod, "migrate_legacy", lambda: None):
+        cfg = Config.load(path)
+        cfg.api_key = "sk-user-set"
+        cfg.save(path)
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        assert saved["api_key"] == "sk-user-set", saved
+        assert "sk-env-secret" not in path.read_text(encoding="utf-8"), "env 值落盘了"
+        # base_url 未被用户改动，仍等于注入值，应还原成磁盘原值
+        assert saved["base_url"] == "https://disk.example.com", saved
+    return "用户新设 Key 落盘；未改动的 base_url 仍还原磁盘原值"
+
+
 def main() -> int:
     os.environ.pop("HTTP_PROXY", None)
     os.environ.pop("HTTPS_PROXY", None)

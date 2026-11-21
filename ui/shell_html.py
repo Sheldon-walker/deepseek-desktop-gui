@@ -352,6 +352,7 @@ window.chrome.webview.addEventListener('message', function(e){
     case 'panel_open': setPanel(!!msg.data); break;
     case 'theme': document.body.classList.toggle('dark', !!(msg.data && msg.data.dark)); break;
     case 'input_set': ShellUI.setText(msg.data || ''); break;
+    case 'input_append': ShellUI.appendText(msg.data || ''); break;
     case 'input_clear': ShellUI.clear(); break;
     case 'input_focus': ShellUI.focus(); break;
     case 'recording': ShellUI.setRecording(!!msg.data); break;
@@ -786,6 +787,7 @@ window.addEventListener('wheel', function(e){
 // 输入栏 API（给 Python 侧调用）
 window.ShellUI = {
   setText: function(t){ ta.value = t || ''; autoGrow(); syncSend(); ta.focus(); },
+  appendText: function(t){ ta.value = (ta.value || '') + (t || ''); autoGrow(); syncSend(); ta.focus(); },
   getText: function(){ return ta.value; },
   clear: function(){ ta.value = ''; autoGrow(); syncSend(); },
   focus: function(){ ta.focus(); },

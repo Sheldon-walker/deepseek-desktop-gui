@@ -42,7 +42,7 @@ def _content_text(content) -> str:
             if part.get("type") == "text":
                 parts.append(str(part.get("text") or ""))
             elif part.get("type") == "file":
-                parts.append(f"[附件 {part.get('file_id')}]")
+                parts.append(f"[附件 {part.get('_name') or part.get('name') or part.get('file_id')}]")
         elif part:
             parts.append(str(part))
     return "\n".join(parts)
@@ -146,6 +146,8 @@ class WebChatView(ctk.CTkFrame):
         on_regenerate=None,
         on_delete_msg=None,
         on_show_sources=None,
+        on_speak_selection=None,
+        on_add_quote=None,
     ) -> None:
         super().__init__(master, fg_color=C["bg"], corner_radius=0)
         self.on_speak = on_speak
@@ -155,6 +157,8 @@ class WebChatView(ctk.CTkFrame):
         self.on_regenerate = on_regenerate
         self.on_delete_msg = on_delete_msg
         self.on_show_sources = on_show_sources
+        self.on_speak_selection = on_speak_selection
+        self.on_add_quote = on_add_quote
 
         self.zoom = 1.0
         self._msg_id = 0
@@ -278,6 +282,18 @@ class WebChatView(ctk.CTkFrame):
                 self.on_show_sources(d.get("index"), d.get("note") or "")
         elif t == "speak":
             self._handle_speak(d)
+        elif t == "speak_selection":
+            # 与默认 Web 模式 window.py::_on_web_message 保持同样的 payload：data.text（strip 后的字符串）
+            text = str((d or {}).get("text") or "").strip() if isinstance(d, dict) else ""
+            if text:
+                cb = self.on_speak_selection or getattr(self.winfo_toplevel(), "_speak_selection", None)
+                if cb:
+                    cb(text)
+        elif t == "quote_selection":
+            # 整个 data（index/picked/role/context）原样转给 App._add_quote，与 Web 模式一致
+            cb = self.on_add_quote or getattr(self.winfo_toplevel(), "_add_quote", None)
+            if cb:
+                cb(d or {})
         elif t == "regen":
             if self.on_regenerate:
                 self.on_regenerate()
@@ -400,7 +416,7 @@ class WebChatView(ctk.CTkFrame):
                 files = []
                 if isinstance(content, list):
                     files = [
-                        {"name": p.get("file_id"), "file_id": p.get("file_id")}
+                        {"name": p.get("_name") or p.get("name") or p.get("file_id"), "file_id": p.get("file_id")}
                         for p in content
                         if isinstance(p, dict) and p.get("type") == "file"
                     ]

@@ -139,19 +139,33 @@ class Config:
         migrate_legacy()
         p = path or cls.path()
         cfg = cls()
+        raw: dict[str, Any] = {}
         if p.exists():
             try:
                 raw = json.loads(p.read_text(encoding="utf-8"))
             except (ValueError, OSError):
                 raw = {}
             cfg = cls.from_dict(raw)
-        # 环境变量优先级最高，方便临时覆盖（不落盘）
+        # 环境变量优先级最高，方便临时覆盖（不落盘）。
+        # 覆盖值只在内存的 cfg 上生效：to_dict()/save() 会把仍保持注入值的字段
+        # 还原成磁盘原值；用户主动改过（值已偏离注入值）的字段允许正常落盘。
+        env_fields: set[str] = set()
+        env_injected: dict[str, str] = {}
         env_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
         if env_key:
             cfg.api_key = env_key
+            env_fields.add("api_key")
+            env_injected["api_key"] = env_key
         env_base = os.environ.get("DEEPSEEK_BASE_URL", "").strip()
         if env_base:
             cfg.base_url = env_base
+            env_fields.add("base_url")
+            env_injected["base_url"] = env_base
+        # 动态实例属性，故意不是 dataclass 字段：fields(self) 不含它们，
+        # to_dict() 就不会把这些内部状态写进 config.json。
+        cfg._disk_raw = raw
+        cfg._env_fields = env_fields
+        cfg._env_injected = env_injected
         return cfg
 
     @classmethod
@@ -241,6 +255,20 @@ class Config:
 
     def to_dict(self, *, mask_key: bool = False) -> dict[str, Any]:
         data = {f.name: getattr(self, f.name) for f in fields(self)}
+        # 环境变量注入的 api_key / base_url 只在内存生效：字段值仍等于注入值时
+        # 还原成磁盘原值（磁盘没该字段则用 dataclass 默认值），绝不把临时注入值
+        # 写进 config.json；用户主动改过、值已偏离注入值的字段允许正常落盘。
+        env_fields = getattr(self, "_env_fields", None)
+        if env_fields:
+            raw = getattr(self, "_disk_raw", None)
+            raw = raw if isinstance(raw, dict) else {}
+            injected = getattr(self, "_env_injected", None)
+            injected = injected if isinstance(injected, dict) else {}
+            defaults = type(self)()
+            for name in env_fields:
+                if name in injected and getattr(self, name, None) != injected[name]:
+                    continue
+                data[name] = raw[name] if name in raw else getattr(defaults, name)
         if mask_key and data.get("api_key"):
             data["api_key"] = mask_key_value(data["api_key"])
         return data
