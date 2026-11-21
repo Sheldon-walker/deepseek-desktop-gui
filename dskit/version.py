@@ -3,7 +3,7 @@
 版本号唯一真源：设置页「当前版本」、CLI `update`、版本比较都读 APP_VERSION。
 发版时只改这里，并让 GitHub Release 的 tag 与它严格对应：
 
-    APP_VERSION = "0.1.1"  ->  tag v0.1.1
+    APP_VERSION = "0.1.2"  ->  tag v0.1.2
 
 改完重新打包 exe，再建 Release（不要勾 pre-release）并上传 DeepSeekDesktop.exe。
 """
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 APP_NAME = "DeepSeek Desktop"
 
-# 当前版本号，需与首个 Release 的 tag 对应：v0.1.1。设置页「当前版本」显示的就是它。
-APP_VERSION = "0.1.1"
+# 当前版本号，需与最新正式版 Release 的 tag 对应。设置页「当前版本」显示的就是它。
+APP_VERSION = "0.1.2"
 
 # GitHub 更新源，格式 owner/repo。用户可在设置页「更新源」里覆盖。
 UPDATE_REPO = "Sheldon-walker/deepseek-desktop-gui"

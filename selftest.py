@@ -864,20 +864,23 @@ def t_update_release_edge(base: str) -> str:
     return "三种边界均正确"
 
 
-@case("更新：当前版本与首个 Release v0.1.1 对齐")
+@case("更新：当前版本与线上正式版 Release 对齐")
 def t_update_first_release(base: str) -> str:
     from dskit.updater import compare_versions, parse_release_payload, parse_version
     from dskit.version import APP_VERSION, EXE_NAME
 
-    assert APP_VERSION == "0.1.1"
-    assert parse_version("v" + APP_VERSION) == (0, 1, 1, 1)
-    assert compare_versions("v" + APP_VERSION, APP_VERSION) == 0
+    # 不绑定具体版本号：以后只改 version.py 即可，无需同步改自测
+    parts = tuple(int(x) for x in APP_VERSION.split("."))
+    assert len(parts) == 3
+    tag = "v" + APP_VERSION
+    assert parse_version(tag) == (*parts, 1)
+    assert compare_versions(tag, APP_VERSION) == 0
     info = parse_release_payload(
         {
-            "tag_name": "v" + APP_VERSION,
-            "name": "v0.1.1 首个 Release",
-            "body": "## 首个版本\n- 本地 GUI 客户端\n- 设置页检查更新",
-            "html_url": "https://github.com/Sheldon-walker/deepseek-desktop-gui/releases/tag/v0.1.1",
+            "tag_name": tag,
+            "name": tag + " 正式版",
+            "body": "## 更新内容\n- 本地 GUI 客户端\n- 设置页检查更新",
+            "html_url": "https://github.com/Sheldon-walker/deepseek-desktop-gui/releases/tag/" + tag,
             "prerelease": False,
             "assets": [
                 {"name": EXE_NAME, "browser_download_url": "https://example.com/" + EXE_NAME},
@@ -886,7 +889,7 @@ def t_update_first_release(base: str) -> str:
         current=APP_VERSION,
     )
     assert info.ok and not info.has_update
-    assert info.latest == "v0.1.1"
+    assert info.latest == tag
     assert info.message == "已是最新版本。"
     assert info.download_url.endswith(EXE_NAME)
     return "tag / 当前版本 / 已是最新 / exe 直链均对应"
